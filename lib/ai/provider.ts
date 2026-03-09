@@ -11,7 +11,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import { ZodSchema } from 'zod'
+import { z } from 'zod'
 
 // ─── Shared constants ─────────────────────────────────────────────────────────
 
@@ -21,6 +21,54 @@ function retryNote(attempt: number, lastError: string): string {
   return attempt > 0
     ? `\n\nNota: il tentativo ${attempt} ha prodotto output non valido (${lastError}). Correggi e rispondi SOLO con JSON valido.`
     : ''
+}
+
+/**
+ * Strips markdown fences, leading/trailing prose, and any characters outside
+ * the outermost JSON object `{…}` or array `[…]`.
+ *
+ * Handles all common LLM dirty-output patterns:
+ *   - ```json … ```   (markdown code fence)
+ *   - ```             (bare fence)
+ *   - "Sure! Here is the JSON: { … }"
+ *   - trailing commas before } or ]  (common in smaller models)
+ */
+function extractJson(raw: string): string {
+  // 1. Strip markdown code fences (```json … ``` or ``` … ```)
+  let text = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '')
+
+  // 2. Find the first opening brace/bracket and the last closing one
+  const firstObj = text.indexOf('{')
+  const firstArr = text.indexOf('[')
+
+  let start: number
+  let openChar: string
+  let closeChar: string
+
+  if (firstObj === -1 && firstArr === -1) {
+    // No JSON structure found — return as-is and let JSON.parse throw
+    return text.trim()
+  }
+
+  if (firstArr === -1 || (firstObj !== -1 && firstObj < firstArr)) {
+    start = firstObj
+    openChar = '{'
+    closeChar = '}'
+  } else {
+    start = firstArr
+    openChar = '['
+    closeChar = ']'
+  }
+
+  const end = text.lastIndexOf(closeChar)
+  if (end === -1 || end < start) return text.trim()
+
+  text = text.slice(start, end + 1)
+
+  // 3. Remove trailing commas before } or ] (e.g. `,"key": "val",}`)
+  text = text.replace(/,(\s*[}\]])/g, '$1')
+
+  return text
 }
 
 // ─── Interface ────────────────────────────────────────────────────────────────
@@ -33,7 +81,7 @@ export interface AIProvider {
   generateStructuredOutput<T>(
     prompt: string,
     systemPrompt: string,
-    schema: ZodSchema<T>,
+    schema: z.ZodType<T>,
     maxTokens?: number
   ): Promise<T>
 
@@ -45,7 +93,7 @@ export interface AIProvider {
     imageBase64: string,
     mimeType: string,
     prompt: string,
-    schema: ZodSchema<T>
+    schema: z.ZodType<T>
   ): Promise<T>
 }
 
@@ -61,26 +109,35 @@ export class AnthropicProvider implements AIProvider {
   async generateStructuredOutput<T>(
     prompt: string,
     systemPrompt: string,
-    schema: ZodSchema<T>,
+    schema: z.ZodType<T>,
     maxTokens = 3000
   ): Promise<T> {
+    if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const userContent =
+        prompt +
+        retryNote(attempt, lastError) +
+        '\n\nRispondi ESCLUSIVAMENTE con JSON valido, nessun testo prima o dopo.'
+
       const response = await this.client.messages.create({
         model: process.env.ANTHROPIC_TEXT_MODEL || 'claude-sonnet-4-6',
-        max_tokens: maxTokens,
+        max_tokens: 8192,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [
-          { role: 'user', content: prompt + retryNote(attempt, lastError) },
-          { role: 'assistant', content: '{' }, // prefill — forces JSON-only output
+          { role: 'user', content: userContent },
         ],
+      }, {
+        headers: { 'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15' },
       })
 
       try {
-        const rawText = '{' + (response.content[0] as Anthropic.TextBlock).text
-        return schema.parse(JSON.parse(rawText))
+        const rawText = (response.content[0] as Anthropic.TextBlock).text
+        return schema.parse(JSON.parse(extractJson(rawText)))
       } catch (err) {
+        const rawText = (response.content[0] as Anthropic.TextBlock)?.text ?? ''
+        console.error('DEBUG FINE JSON:', rawText.slice(-150))
         lastError = err instanceof Error ? err.message : 'Errore sconosciuto'
       }
     }
@@ -92,7 +149,7 @@ export class AnthropicProvider implements AIProvider {
     imageBase64: string,
     mimeType: string,
     prompt: string,
-    schema: ZodSchema<T>
+    schema: z.ZodType<T>
   ): Promise<T> {
     type AnthropicMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
     let lastError = ''
@@ -118,16 +175,18 @@ export class AnthropicProvider implements AIProvider {
                   data: imageBase64,
                 },
               },
-              { type: 'text', text: userText },
+              {
+                type: 'text',
+                text: userText + '\n\nRispondi ESCLUSIVAMENTE con JSON valido, nessun testo prima o dopo.',
+              },
             ],
           },
-          { role: 'assistant', content: '{' }, // prefill — forces JSON-only output
         ],
       })
 
       try {
-        const rawText = '{' + (response.content[0] as Anthropic.TextBlock).text
-        return schema.parse(JSON.parse(rawText))
+        const rawText = (response.content[0] as Anthropic.TextBlock).text
+        return schema.parse(JSON.parse(extractJson(rawText)))
       } catch (err) {
         lastError = err instanceof Error ? err.message : 'Errore sconosciuto'
       }
@@ -218,24 +277,24 @@ export class OpenAICompatibleProvider implements AIProvider {
   async generateStructuredOutput<T>(
     prompt: string,
     systemPrompt: string,
-    schema: ZodSchema<T>,
-    maxTokens = 3000
+    schema: z.ZodType<T>,
+    maxTokens = 8192
   ): Promise<T> {
+    if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
+
+    const cleanedSystem =
+      (systemPrompt ? systemPrompt + '\n\n' : '') +
+      'CRITICAL: You MUST output ONLY raw, valid JSON. NO markdown formatting. NO backticks. NO conversational text before or after the JSON.'
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const messages: OAIMessage[] = []
-      if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+      messages.push({ role: 'system', content: cleanedSystem })
       messages.push({ role: 'user', content: prompt + retryNote(attempt, lastError) })
 
       try {
-        const content = await this.callCompletion(
-          this.textModel,
-          messages,
-          maxTokens,
-          true
-        )
-        return schema.parse(JSON.parse(content))
+        const raw = await this.callCompletion(this.textModel, messages, maxTokens, true)
+        return schema.parse(JSON.parse(extractJson(raw)))
       } catch (err) {
         lastError = err instanceof Error ? err.message : 'Errore sconosciuto'
       }
@@ -248,7 +307,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     imageBase64: string,
     mimeType: string,
     prompt: string,
-    schema: ZodSchema<T>
+    schema: z.ZodType<T>
   ): Promise<T> {
     let lastError = ''
 
@@ -275,7 +334,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         const content = await this.callCompletion(
           this.visionModel,
           messages,
-          1024,
+          8192,
           true
         )
         return schema.parse(JSON.parse(content))
@@ -299,6 +358,7 @@ export function getAIProvider(): AIProvider {
   if (_provider) return _provider
 
   const providerName = process.env.AI_PROVIDER || 'anthropic'
+  console.log('Using AI Provider:', providerName)
   _provider =
     providerName === 'openai_compatible'
       ? new OpenAICompatibleProvider()
