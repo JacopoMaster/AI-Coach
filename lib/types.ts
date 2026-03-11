@@ -88,6 +88,31 @@ export interface DietLog {
   notes: string | null
 }
 
+export interface Food {
+  id: string
+  user_id: string
+  name: string
+  calories_per_100g: number
+  proteins_per_100g: number
+  carbs_per_100g: number
+  fats_per_100g: number
+  created_at: string
+}
+
+export interface NutritionEntry {
+  id: string
+  user_id: string
+  date: string
+  food_id: string | null
+  grams: number | null
+  name: string
+  calories: number
+  proteins: number
+  carbs: number
+  fats: number
+  created_at: string
+}
+
 export interface Message {
   role: 'user' | 'assistant'
   content: string
