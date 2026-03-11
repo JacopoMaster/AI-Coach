@@ -50,7 +50,7 @@ function Modal({ onClose, children }: { onClose: () => void; children: React.Rea
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md bg-background rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto overscroll-contain shadow-xl">
+      <div className="relative z-10 w-full max-w-md bg-background rounded-t-2xl sm:rounded-2xl max-h-[85dvh] overflow-y-auto overscroll-contain shadow-xl">
         {children}
       </div>
     </div>
@@ -198,7 +198,7 @@ function AddFoodModal({
   setActiveTab: (t: 'db' | 'free') => void
 }) {
   return (
-    <div className="px-4 pt-4 pb-12 space-y-4">
+    <div className="px-4 pt-4 pb-32 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Aggiungi Cibo</h2>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -341,7 +341,7 @@ function DatabaseTab({ onAdded }: { onAdded: () => void }) {
               setNewFood((f) => ({ ...f, name: query.trim() }))
               setStep('create')
             }}
-            className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 py-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 py-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors mb-16"
           >
             <Plus className="h-4 w-4" />
             Crea Nuovo Alimento
