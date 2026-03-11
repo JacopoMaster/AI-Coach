@@ -404,6 +404,7 @@ function DatabaseTab({ onAdded }: { onAdded: () => void }) {
         </div>
       </div>
 
+      {/* Risultati ricerca */}
       {results.length > 0 && (
         <div className="divide-y border rounded-lg overflow-hidden">
           {results.map((food) => (
@@ -421,15 +422,24 @@ function DatabaseTab({ onAdded }: { onAdded: () => void }) {
         </div>
       )}
 
+      {/* Messaggio nessun risultato */}
       {query.trim() && !searching && results.length === 0 && (
-        <div className="text-center py-4 space-y-2">
-          <p className="text-sm text-muted-foreground">Nessun risultato per &quot;{query}&quot;</p>
-          <Button variant="outline" size="sm" onClick={() => { setShowAddForm(true); setNewFood((f) => ({ ...f, name: query })) }}>
-            <Plus className="h-4 w-4 mr-1" />
-            Aggiungi al database
-          </Button>
-        </div>
+        <p className="text-sm text-muted-foreground text-center">
+          Nessun risultato per &quot;{query}&quot;
+        </p>
       )}
+
+      {/* Bottone sempre visibile per aggiungere un nuovo alimento */}
+      <button
+        onClick={() => {
+          setNewFood((f) => ({ ...f, name: query.trim() }))
+          setShowAddForm(true)
+        }}
+        className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+      >
+        <Plus className="h-4 w-4" />
+        Aggiungi nuovo alimento al DB
+      </button>
     </div>
   )
 }
