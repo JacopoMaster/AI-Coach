@@ -234,13 +234,15 @@ function AddFoodModal({
 
 // ─── DatabaseTab ──────────────────────────────────────────────────────────────
 
+type DbStep = 'search' | 'create' | 'grams'
+
 function DatabaseTab({ onAdded }: { onAdded: () => void }) {
+  const [step, setStep] = useState<DbStep>('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Food[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedFood, setSelectedFood] = useState<Food | null>(null)
   const [grams, setGrams] = useState('')
-  const [showAddForm, setShowAddForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newFood, setNewFood] = useState({
     name: '',
@@ -280,7 +282,7 @@ function DatabaseTab({ onAdded }: { onAdded: () => void }) {
     if (res.ok) {
       const food: Food = await res.json()
       setSelectedFood(food)
-      setShowAddForm(false)
+      setStep('grams')
     }
     setSaving(false)
   }
@@ -309,137 +311,147 @@ function DatabaseTab({ onAdded }: { onAdded: () => void }) {
     onAdded()
   }
 
-  // ── Step 3: Grammi ──
-  if (selectedFood) {
-    const kcalPreview = grams && parseFloat(grams) > 0
-      ? Math.round(selectedFood.calories_per_100g * parseFloat(grams) / 100)
-      : null
-
-    return (
-      <div className="space-y-4">
-        <div className="rounded-lg border p-3 bg-muted/30">
-          <p className="font-medium">{selectedFood.name}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Per 100g: {selectedFood.calories_per_100g} kcal · P:{selectedFood.proteins_per_100g}g · C:{selectedFood.carbs_per_100g}g · G:{selectedFood.fats_per_100g}g
-          </p>
-        </div>
-        <div className="space-y-1">
-          <Label>Grammi consumati</Label>
-          <Input
-            type="number"
-            placeholder="es. 150"
-            value={grams}
-            onChange={(e) => setGrams(e.target.value)}
-            autoFocus
-          />
-          {kcalPreview !== null && (
-            <p className="text-xs text-muted-foreground">≈ {kcalPreview} kcal</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setSelectedFood(null)} className="flex-1">
-            Indietro
-          </Button>
-          <Button onClick={addEntry} disabled={!grams || saving} className="flex-1">
-            {saving && <Loader2 className="animate-spin h-4 w-4 mr-1" />}
-            Aggiungi
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Step 2: Aggiungi al database ──
-  if (showAddForm) {
-    const fields: Array<{ key: keyof typeof newFood; label: string; type: string; placeholder: string }> = [
-      { key: 'name', label: 'Nome alimento', type: 'text', placeholder: 'es. Pollo arrosto' },
-      { key: 'calories_per_100g', label: 'Calorie (kcal/100g)', type: 'number', placeholder: '165' },
-      { key: 'proteins_per_100g', label: 'Proteine (g/100g)', type: 'number', placeholder: '31' },
-      { key: 'carbs_per_100g', label: 'Carboidrati (g/100g)', type: 'number', placeholder: '0' },
-      { key: 'fats_per_100g', label: 'Grassi (g/100g)', type: 'number', placeholder: '3.6' },
-    ]
-    return (
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">Valori per 100g</p>
-        {fields.map(({ key, label, type, placeholder }) => (
-          <div key={key} className="space-y-1">
-            <Label>{label}</Label>
-            <Input
-              type={type}
-              placeholder={placeholder}
-              value={newFood[key]}
-              onChange={(e) => setNewFood((f) => ({ ...f, [key]: e.target.value }))}
-              autoFocus={key === 'name'}
-            />
-          </div>
-        ))}
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowAddForm(false)} className="flex-1">
-            Annulla
-          </Button>
-          <Button onClick={saveNewFood} disabled={!newFood.name || saving} className="flex-1">
-            {saving && <Loader2 className="animate-spin h-4 w-4 mr-1" />}
-            Salva e Seleziona
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Step 1: Ricerca ──
+  // ── Unico return, step governa cosa si vede ──────────────────────────────────
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label>Cerca alimento</Label>
-        <div className="relative">
-          <Input
-            placeholder="es. Pollo, Riso, Avocado..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-          {searching && (
-            <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+
+      {/* ── STEP: search ── */}
+      {step === 'search' && (
+        <>
+          {/* Input ricerca */}
+          <div className="space-y-1">
+            <Label>Cerca alimento</Label>
+            <div className="relative">
+              <Input
+                placeholder="es. Pollo, Riso, Avocado..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoFocus
+              />
+              {searching && (
+                <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+          </div>
+
+          {/* Bottone INCONDIZIONATO – sempre visibile */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewFood((f) => ({ ...f, name: query.trim() }))
+              setStep('create')
+            }}
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 py-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Crea Nuovo Alimento
+          </button>
+
+          {/* Risultati ricerca */}
+          {results.length > 0 && (
+            <div className="divide-y border rounded-lg overflow-hidden">
+              {results.map((food) => (
+                <button
+                  key={food.id}
+                  type="button"
+                  onClick={() => { setSelectedFood(food); setStep('grams') }}
+                  className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                >
+                  <p className="text-sm font-medium">{food.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {food.calories_per_100g} kcal/100g · P:{food.proteins_per_100g}g · C:{food.carbs_per_100g}g · G:{food.fats_per_100g}g
+                  </p>
+                </button>
+              ))}
+            </div>
           )}
-        </div>
-      </div>
 
-      {/* Risultati ricerca */}
-      {results.length > 0 && (
-        <div className="divide-y border rounded-lg overflow-hidden">
-          {results.map((food) => (
-            <button
-              key={food.id}
-              onClick={() => setSelectedFood(food)}
-              className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors"
-            >
-              <p className="text-sm font-medium">{food.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {food.calories_per_100g} kcal/100g · P:{food.proteins_per_100g}g · C:{food.carbs_per_100g}g · G:{food.fats_per_100g}g
-              </p>
-            </button>
+          {query.trim() && !searching && results.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center">
+              Nessun risultato per &quot;{query}&quot;
+            </p>
+          )}
+        </>
+      )}
+
+      {/* ── STEP: create ── */}
+      {step === 'create' && (
+        <>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+            Nuovo alimento – valori per 100g
+          </p>
+
+          {(
+            [
+              { key: 'name' as const,              label: 'Nome alimento',        type: 'text',   placeholder: 'es. Pollo arrosto' },
+              { key: 'calories_per_100g' as const, label: 'Calorie (kcal/100g)',  type: 'number', placeholder: '165' },
+              { key: 'proteins_per_100g' as const, label: 'Proteine (g/100g)',    type: 'number', placeholder: '31' },
+              { key: 'carbs_per_100g' as const,    label: 'Carboidrati (g/100g)', type: 'number', placeholder: '0' },
+              { key: 'fats_per_100g' as const,     label: 'Grassi (g/100g)',      type: 'number', placeholder: '3.6' },
+            ]
+          ).map(({ key, label, type, placeholder }) => (
+            <div key={key} className="space-y-1">
+              <Label>{label}</Label>
+              <Input
+                type={type}
+                placeholder={placeholder}
+                value={newFood[key]}
+                onChange={(e) => setNewFood((f) => ({ ...f, [key]: e.target.value }))}
+                autoFocus={key === 'name'}
+              />
+            </div>
           ))}
-        </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={() => setStep('search')} className="flex-1">
+              Annulla
+            </Button>
+            <Button type="button" onClick={saveNewFood} disabled={!newFood.name || saving} className="flex-1">
+              {saving && <Loader2 className="animate-spin h-4 w-4 mr-1" />}
+              Salva nel Database
+            </Button>
+          </div>
+        </>
       )}
 
-      {/* Messaggio nessun risultato */}
-      {query.trim() && !searching && results.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center">
-          Nessun risultato per &quot;{query}&quot;
-        </p>
+      {/* ── STEP: grams ── */}
+      {step === 'grams' && selectedFood && (
+        <>
+          <div className="rounded-lg border p-3 bg-muted/30">
+            <p className="font-medium">{selectedFood.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Per 100g: {selectedFood.calories_per_100g} kcal · P:{selectedFood.proteins_per_100g}g · C:{selectedFood.carbs_per_100g}g · G:{selectedFood.fats_per_100g}g
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Grammi consumati</Label>
+            <Input
+              type="number"
+              placeholder="es. 150"
+              value={grams}
+              onChange={(e) => setGrams(e.target.value)}
+              autoFocus
+            />
+            {grams && parseFloat(grams) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                ≈ {Math.round(selectedFood.calories_per_100g * parseFloat(grams) / 100)} kcal
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => { setSelectedFood(null); setStep('search') }} className="flex-1">
+              Indietro
+            </Button>
+            <Button type="button" onClick={addEntry} disabled={!grams || saving} className="flex-1">
+              {saving && <Loader2 className="animate-spin h-4 w-4 mr-1" />}
+              Aggiungi
+            </Button>
+          </div>
+        </>
       )}
 
-      {/* Bottone sempre visibile per aggiungere un nuovo alimento */}
-      <button
-        onClick={() => {
-          setNewFood((f) => ({ ...f, name: query.trim() }))
-          setShowAddForm(true)
-        }}
-        className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/40 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-      >
-        <Plus className="h-4 w-4" />
-        Aggiungi nuovo alimento al DB
-      </button>
     </div>
   )
 }
