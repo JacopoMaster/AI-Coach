@@ -87,9 +87,10 @@ export async function GET(request: NextRequest) {
     // Per ogni esercizio, tieni solo la nota della sessione più recente
     const result: Record<string, string> = {}
     const latestDates: Record<string, string> = {}
-    for (const row of (data || []) as Array<{ plan_exercise_id: string; notes: string; session: { date: string } }>) {
+    for (const row of (data as any[] || [])) {
       const exId = row.plan_exercise_id
-      const date = row.session?.date || ''
+      const sessionObj = Array.isArray(row.session) ? row.session[0] : row.session
+      const date = sessionObj?.date || ''
       if (!latestDates[exId] || date > latestDates[exId]) {
         result[exId] = row.notes
         latestDates[exId] = date
