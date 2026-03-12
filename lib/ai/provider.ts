@@ -161,7 +161,7 @@ export class AnthropicProvider implements AIProvider {
           : prompt
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_VISION_MODEL || 'claude-3-5-sonnet-20241022',
+        model: process.env.ANTHROPIC_VISION_MODEL || 'claude-3-5-sonnet-20240620',
         max_tokens: 1024,
         messages: [
           {
