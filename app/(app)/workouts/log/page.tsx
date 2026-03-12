@@ -30,6 +30,7 @@ export default function WorkoutLogPage() {
   const [currentExIdx, setCurrentExIdx] = useState(0)
   const [overallNotes, setOverallNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [previousNotes, setPreviousNotes] = useState<Record<string, string>>({})
 
   useEffect(() => {
     fetch('/api/workouts?type=plan')
@@ -51,6 +52,13 @@ export default function WorkoutLogPage() {
     setExerciseLogs(logs)
     setCurrentExIdx(0)
     setStep('log-exercises')
+
+    const ids = (day.exercises || []).map((ex) => ex.id).join(',')
+    if (ids) {
+      fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
+        .then((r) => r.json())
+        .then(setPreviousNotes)
+    }
   }
 
   function updateLog(field: keyof ExerciseLog, value: string) {
@@ -207,6 +215,12 @@ export default function WorkoutLogPage() {
             </div>
             <div className="space-y-1">
               <Label>Note esercizio</Label>
+              {previousNotes[log.plan_exercise_id] && (
+                <div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  <span className="mt-0.5 shrink-0">📝</span>
+                  <span className="italic">Ultima volta: {previousNotes[log.plan_exercise_id]}</span>
+                </div>
+              )}
               <Textarea
                 value={log.notes}
                 onChange={(e) => updateLog('notes', e.target.value)}

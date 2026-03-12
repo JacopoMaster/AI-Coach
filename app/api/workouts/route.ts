@@ -70,6 +70,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || [])
   }
 
+  if (type === 'previous_notes') {
+    const ids = (searchParams.get('exercise_ids') || '').split(',').filter(Boolean)
+    if (ids.length === 0) return NextResponse.json({})
+
+    const { data, error } = await supabase
+      .from('session_exercises')
+      .select(`plan_exercise_id, notes, session:workout_sessions!inner(date, user_id)`)
+      .in('plan_exercise_id', ids)
+      .eq('session.user_id', user.id)
+      .not('notes', 'is', null)
+      .neq('notes', '')
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Per ogni esercizio, tieni solo la nota della sessione più recente
+    const result: Record<string, string> = {}
+    const latestDates: Record<string, string> = {}
+    for (const row of (data || []) as Array<{ plan_exercise_id: string; notes: string; session: { date: string } }>) {
+      const exId = row.plan_exercise_id
+      const date = row.session?.date || ''
+      if (!latestDates[exId] || date > latestDates[exId]) {
+        result[exId] = row.notes
+        latestDates[exId] = date
+      }
+    }
+    return NextResponse.json(result)
+  }
+
   if (type === 'all_plans') {
     const { data, error } = await supabase
       .from('workout_plans')
