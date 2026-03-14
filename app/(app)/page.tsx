@@ -21,15 +21,15 @@ export default function DashboardPage() {
   const [latestMeasurement, setLatestMeasurement] = useState<BodyMeasurement | null>(null)
   const [prevMeasurement, setPrevMeasurement] = useState<BodyMeasurement | null>(null)
   const [lastSession, setLastSession] = useState<(WorkoutSession & { plan_day?: { day_name: string } }) | null>(null)
-  const [todayDiet, setTodayDiet] = useState<DietLog | null>(null)
+  const [weekLogs, setWeekLogs] = useState<DietLog[]>([])
   const [dietPlan, setDietPlan] = useState<DietPlan | null>(null)
 
   useEffect(() => {
     async function loadAll() {
-      const [bodyRes, sessionsRes, dietTodayRes, dietPlanRes] = await Promise.all([
+      const [bodyRes, sessionsRes, dietWeekRes, dietPlanRes] = await Promise.all([
         fetch('/api/body?days=60'),
         fetch('/api/workouts?type=sessions&days=7'),
-        fetch('/api/diet?type=today'),
+        fetch('/api/diet?type=logs&days=7'),
         fetch('/api/diet?type=plan'),
       ])
 
@@ -44,7 +44,7 @@ export default function DashboardPage() {
         if (sessions.length > 0) setLastSession(sessions[0])
       }
 
-      if (dietTodayRes.ok) setTodayDiet(await dietTodayRes.json())
+      if (dietWeekRes.ok) setWeekLogs(await dietWeekRes.json())
       if (dietPlanRes.ok) setDietPlan(await dietPlanRes.json())
     }
 
@@ -56,10 +56,58 @@ export default function DashboardPage() {
       ? latestMeasurement.weight_kg - prevMeasurement.weight_kg
       : null
 
-  const caloriePct =
-    dietPlan?.calories && todayDiet?.calories
-      ? Math.min(100, Math.round((todayDiet.calories / dietPlan.calories) * 100))
-      : null
+  // --- Weekly balance logic ---
+
+  // Monday of the current ISO week (Mon = start, Sun = end)
+  const mondayStr = (() => {
+    const now = new Date()
+    const dow = now.getDay()                    // 0=Sun … 6=Sat
+    const daysFromMon = dow === 0 ? 6 : dow - 1 // Sun wraps to 6
+    const mon = new Date(now)
+    mon.setDate(now.getDate() - daysFromMon)
+    return mon.toISOString().split('T')[0]
+  })()
+
+  // How many days have elapsed since Monday (Mon=1 … Sun=7)
+  const daysElapsed = (() => {
+    const dow = new Date().getDay()
+    return dow === 0 ? 7 : dow
+  })()
+
+  // Keep only logs that fall within the current week (Mon–today)
+  const currentWeekLogs = weekLogs.filter((l) => l.date >= mondayStr)
+
+  // Totals consumed this week
+  const totals = currentWeekLogs.length > 0
+    ? {
+        calories: currentWeekLogs.reduce((s, l) => s + (l.calories  || 0), 0),
+        protein:  currentWeekLogs.reduce((s, l) => s + (l.protein_g || 0), 0),
+        carbs:    currentWeekLogs.reduce((s, l) => s + (l.carbs_g   || 0), 0),
+        fat:      currentWeekLogs.reduce((s, l) => s + (l.fat_g     || 0), 0),
+      }
+    : null
+
+  // Weekly budget = daily target × 7
+  const weeklyTarget = dietPlan
+    ? {
+        calories: (dietPlan.calories   || 0) * 7,
+        protein:  (dietPlan.protein_g  || 0) * 7,
+        carbs:    (dietPlan.carbs_g    || 0) * 7,
+        fat:      (dietPlan.fat_g      || 0) * 7,
+      }
+    : null
+
+  function pct(value: number, target: number) {
+    return Math.min(100, Math.round((value / target) * 100))
+  }
+
+  // Color the calorie bar based on how close to budget
+  function calorieBarColor(value: number, target: number) {
+    const ratio = value / target
+    if (ratio >= 1.0) return 'bg-red-500'
+    if (ratio >= 0.88) return 'bg-yellow-500'
+    return 'bg-primary'
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -140,42 +188,85 @@ export default function DashboardPage() {
         </Card>
       </Link>
 
-      {/* Today's diet */}
+      {/* Weekly calorie balance */}
       <Link href="/diet">
         <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
           <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <Salad className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm text-muted-foreground">Dieta oggi</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Salad className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm text-muted-foreground">Bilancio Settimanale</CardTitle>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                giorno {daysElapsed}/7 · {currentWeekLogs.length} log
+              </span>
             </div>
           </CardHeader>
           <CardContent>
-            {todayDiet ? (
-              <div className="space-y-2">
+            {totals ? (
+              <div className="space-y-3">
+                {/* Calorie headline: consumed / weekly budget */}
                 <div className="flex items-end justify-between">
-                  <p className="text-3xl font-bold">
-                    {todayDiet.calories || 0} <span className="text-base font-normal text-muted-foreground">kcal</span>
+                  <p className="text-2xl font-bold">
+                    {totals.calories.toLocaleString()}
+                    {weeklyTarget && (
+                      <span className="text-base font-normal text-muted-foreground">
+                        {' '}/ {weeklyTarget.calories.toLocaleString()} kcal
+                      </span>
+                    )}
+                    {!weeklyTarget && (
+                      <span className="text-base font-normal text-muted-foreground"> kcal</span>
+                    )}
                   </p>
-                  {caloriePct !== null && (
-                    <p className="text-sm text-muted-foreground">{caloriePct}% obiettivo</p>
+                  {weeklyTarget && (
+                    <p className={`text-xs font-medium ${
+                      totals.calories > weeklyTarget.calories
+                        ? 'text-red-500'
+                        : 'text-green-500'
+                    }`}>
+                      {totals.calories > weeklyTarget.calories ? '−' : '+'}
+                      {Math.abs(weeklyTarget.calories - totals.calories).toLocaleString()} kcal{' '}
+                      {totals.calories > weeklyTarget.calories ? 'sforato' : 'rimanenti'}
+                    </p>
                   )}
                 </div>
-                <div className="flex gap-3 text-xs text-muted-foreground">
-                  <span>P: {todayDiet.protein_g || 0}g</span>
-                  <span>C: {todayDiet.carbs_g || 0}g</span>
-                  <span>G: {todayDiet.fat_g || 0}g</span>
-                </div>
-                {dietPlan?.calories && (
-                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+
+                {/* Calorie progress bar */}
+                {weeklyTarget && (
+                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-primary rounded-full transition-all"
-                      style={{ width: `${caloriePct}%` }}
+                      className={`h-full rounded-full transition-all ${calorieBarColor(totals.calories, weeklyTarget.calories)}`}
+                      style={{ width: `${pct(totals.calories, weeklyTarget.calories)}%` }}
                     />
                   </div>
                 )}
+
+                {/* Macro rows */}
+                <div className="space-y-1.5">
+                  {(
+                    [
+                      { label: 'Proteine',    key: 'protein' as const, wTarget: weeklyTarget?.protein,  color: 'bg-blue-500'   },
+                      { label: 'Carboidrati', key: 'carbs'   as const, wTarget: weeklyTarget?.carbs,    color: 'bg-yellow-500' },
+                      { label: 'Grassi',      key: 'fat'     as const, wTarget: weeklyTarget?.fat,      color: 'bg-orange-500' },
+                    ]
+                  ).map(({ label, key, wTarget, color }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="w-20 text-xs text-muted-foreground shrink-0">{label}</span>
+                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${color} rounded-full transition-all`}
+                          style={{ width: wTarget ? `${pct(totals[key], wTarget)}%` : '0%' }}
+                        />
+                      </div>
+                      <span className="text-xs font-medium w-20 text-right tabular-nums">
+                        {totals[key]}g{wTarget ? ` / ${wTarget}` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm">Nessun log per oggi. Aggiungilo!</p>
+              <p className="text-muted-foreground text-sm">Nessun log questa settimana.</p>
             )}
           </CardContent>
         </Card>

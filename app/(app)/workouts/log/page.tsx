@@ -21,6 +21,16 @@ type ExerciseLog = {
   rpe: string
 }
 
+type WorkoutDraft = {
+  selectedDay: WorkoutPlanDay
+  exerciseLogs: ExerciseLog[]
+  currentExIdx: number
+  overallNotes: string
+  step: 'log-exercises' | 'summary'
+}
+
+const DRAFT_PREFIX = 'workout_draft_'
+
 export default function WorkoutLogPage() {
   const router = useRouter()
   const [plan, setPlan] = useState<WorkoutPlan | null>(null)
@@ -32,6 +42,42 @@ export default function WorkoutLogPage() {
   const [saving, setSaving] = useState(false)
   const [previousNotes, setPreviousNotes] = useState<Record<string, string>>({})
 
+  // Restore any existing draft on mount
+  useEffect(() => {
+    const draftKey = Object.keys(localStorage).find((k) => k.startsWith(DRAFT_PREFIX))
+    if (!draftKey) return
+    try {
+      const draft: WorkoutDraft = JSON.parse(localStorage.getItem(draftKey) || '')
+      setSelectedDay(draft.selectedDay)
+      setExerciseLogs(draft.exerciseLogs)
+      setCurrentExIdx(draft.currentExIdx)
+      setOverallNotes(draft.overallNotes)
+      setStep(draft.step)
+
+      const ids = (draft.selectedDay.exercises || []).map((ex) => ex.id).join(',')
+      if (ids) {
+        fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
+          .then((r) => r.json())
+          .then(setPreviousNotes)
+      }
+    } catch {
+      localStorage.removeItem(draftKey)
+    }
+  }, [])
+
+  // Persist draft to localStorage whenever workout state changes
+  useEffect(() => {
+    if (!selectedDay || step === 'select-day') return
+    const draft: WorkoutDraft = {
+      selectedDay,
+      exerciseLogs,
+      currentExIdx,
+      overallNotes,
+      step: step as 'log-exercises' | 'summary',
+    }
+    localStorage.setItem(`${DRAFT_PREFIX}${selectedDay.id}`, JSON.stringify(draft))
+  }, [selectedDay, exerciseLogs, currentExIdx, overallNotes, step])
+
   useEffect(() => {
     fetch('/api/workouts?type=plan')
       .then((r) => r.json())
@@ -39,6 +85,31 @@ export default function WorkoutLogPage() {
   }, [])
 
   function selectDay(day: WorkoutPlanDay) {
+    // Check for an existing draft for this day
+    const draftKey = `${DRAFT_PREFIX}${day.id}`
+    const raw = localStorage.getItem(draftKey)
+    if (raw) {
+      try {
+        const draft: WorkoutDraft = JSON.parse(raw)
+        setSelectedDay(draft.selectedDay)
+        setExerciseLogs(draft.exerciseLogs)
+        setCurrentExIdx(draft.currentExIdx)
+        setOverallNotes(draft.overallNotes)
+        setStep(draft.step)
+
+        const ids = (day.exercises || []).map((ex) => ex.id).join(',')
+        if (ids) {
+          fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
+            .then((r) => r.json())
+            .then(setPreviousNotes)
+        }
+        return
+      } catch {
+        localStorage.removeItem(draftKey)
+      }
+    }
+
+    // No draft — initialize fresh
     setSelectedDay(day)
     const logs = (day.exercises || []).map((ex) => ({
       plan_exercise_id: ex.id,
@@ -94,6 +165,8 @@ export default function WorkoutLogPage() {
 
     setSaving(false)
     if (res.ok) {
+      // Clear draft on successful save
+      if (selectedDay) localStorage.removeItem(`${DRAFT_PREFIX}${selectedDay.id}`)
       router.push('/workouts')
     }
   }
