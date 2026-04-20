@@ -99,6 +99,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result)
   }
 
+  if (type === 'previous_performance') {
+    const ids = (searchParams.get('exercise_ids') || '').split(',').filter(Boolean)
+    if (ids.length === 0) return NextResponse.json({})
+
+    const { data, error } = await supabase
+      .from('session_exercises')
+      .select(`plan_exercise_id, sets_done, reps_done, weight_kg, session:workout_sessions!inner(date, user_id)`)
+      .in('plan_exercise_id', ids)
+      .eq('session.user_id', user.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const result: Record<string, { sets_done: string; reps_done: string; weight_kg: string }> = {}
+    const latestDates: Record<string, string> = {}
+    for (const row of (data as any[] || [])) {
+      const exId = row.plan_exercise_id
+      const sessionObj = Array.isArray(row.session) ? row.session[0] : row.session
+      const date = sessionObj?.date || ''
+      if (!latestDates[exId] || date > latestDates[exId]) {
+        result[exId] = {
+          sets_done: row.sets_done != null ? String(row.sets_done) : '',
+          reps_done: row.reps_done ?? '',
+          weight_kg: row.weight_kg != null ? String(row.weight_kg) : '',
+        }
+        latestDates[exId] = date
+      }
+    }
+    return NextResponse.json(result)
+  }
+
   if (type === 'all_plans') {
     const { data, error } = await supabase
       .from('workout_plans')

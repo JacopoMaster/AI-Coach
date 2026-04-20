@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { WorkoutPlan, WorkoutPlanDay, PlanExercise } from '@/lib/types'
+import { useState, useEffect } from 'react'
+import { WorkoutPlan, WorkoutPlanDay, ExerciseProgression } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,7 +29,26 @@ type WorkoutDraft = {
   step: 'log-exercises' | 'summary'
 }
 
+type LastPerf = { sets_done: string; reps_done: string; weight_kg: string }
+
 const DRAFT_PREFIX = 'workout_draft_'
+
+async function fetchSessionMeta(ids: string): Promise<{
+  notes: Record<string, string>
+  perf: Record<string, LastPerf>
+  progressionMap: Record<string, ExerciseProgression>
+}> {
+  const [notes, perf, meso] = await Promise.all([
+    fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`).then((r) => r.json()),
+    fetch(`/api/workouts?type=previous_performance&exercise_ids=${ids}`).then((r) => r.json()),
+    fetch('/api/workouts?type=mesocycle').then((r) => r.json()),
+  ])
+  const progressionMap: Record<string, ExerciseProgression> = {}
+  if (meso?.progressions) {
+    for (const p of meso.progressions) progressionMap[p.plan_exercise_id] = p
+  }
+  return { notes: notes || {}, perf: perf || {}, progressionMap }
+}
 
 export default function WorkoutLogPage() {
   const router = useRouter()
@@ -41,6 +60,9 @@ export default function WorkoutLogPage() {
   const [overallNotes, setOverallNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [previousNotes, setPreviousNotes] = useState<Record<string, string>>({})
+  const [progressions, setProgressions] = useState<Record<string, ExerciseProgression>>({})
+  const [lastPerformance, setLastPerformance] = useState<Record<string, LastPerf>>({})
+  const [loadingDayId, setLoadingDayId] = useState<string | null>(null)
 
   // Restore any existing draft on mount
   useEffect(() => {
@@ -56,9 +78,11 @@ export default function WorkoutLogPage() {
 
       const ids = (draft.selectedDay.exercises || []).map((ex) => ex.id).join(',')
       if (ids) {
-        fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
-          .then((r) => r.json())
-          .then(setPreviousNotes)
+        fetchSessionMeta(ids).then(({ notes, perf, progressionMap }) => {
+          setPreviousNotes(notes)
+          setLastPerformance(perf)
+          setProgressions(progressionMap)
+        })
       }
     } catch {
       localStorage.removeItem(draftKey)
@@ -84,7 +108,9 @@ export default function WorkoutLogPage() {
       .then(setPlan)
   }, [])
 
-  function selectDay(day: WorkoutPlanDay) {
+  async function selectDay(day: WorkoutPlanDay) {
+    if (loadingDayId) return
+
     // Check for an existing draft for this day
     const draftKey = `${DRAFT_PREFIX}${day.id}`
     const raw = localStorage.getItem(draftKey)
@@ -99,9 +125,11 @@ export default function WorkoutLogPage() {
 
         const ids = (day.exercises || []).map((ex) => ex.id).join(',')
         if (ids) {
-          fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
-            .then((r) => r.json())
-            .then(setPreviousNotes)
+          fetchSessionMeta(ids).then(({ notes, perf, progressionMap }) => {
+            setPreviousNotes(notes)
+            setLastPerformance(perf)
+            setProgressions(progressionMap)
+          })
         }
         return
       } catch {
@@ -109,27 +137,47 @@ export default function WorkoutLogPage() {
       }
     }
 
-    // No draft — initialize fresh
+    // No draft — fetch meta first, then initialize logs with progression targets
+    setLoadingDayId(day.id)
+    const ids = (day.exercises || []).map((ex) => ex.id).join(',')
+
+    let progressionMap: Record<string, ExerciseProgression> = {}
+    let prevNotes: Record<string, string> = {}
+    let prevPerf: Record<string, LastPerf> = {}
+
+    if (ids) {
+      const result = await fetchSessionMeta(ids)
+      prevNotes = result.notes
+      prevPerf = result.perf
+      progressionMap = result.progressionMap
+    }
+
+    setPreviousNotes(prevNotes)
+    setLastPerformance(prevPerf)
+    setProgressions(progressionMap)
     setSelectedDay(day)
-    const logs = (day.exercises || []).map((ex) => ({
-      plan_exercise_id: ex.id,
-      name: ex.name,
-      sets_done: String(ex.sets),
-      reps_done: ex.reps,
-      weight_kg: ex.weight_kg ? String(ex.weight_kg) : '',
-      notes: '',
-      rpe: '',
-    }))
+
+    const logs = (day.exercises || []).map((ex) => {
+      const prog = progressionMap[ex.id]
+      return {
+        plan_exercise_id: ex.id,
+        name: ex.name,
+        sets_done: prog?.target_sets != null ? String(prog.target_sets) : String(ex.sets),
+        reps_done: prog?.target_reps != null ? String(prog.target_reps) : ex.reps,
+        weight_kg:
+          prog?.target_weight_kg != null
+            ? String(prog.target_weight_kg)
+            : ex.weight_kg
+            ? String(ex.weight_kg)
+            : '',
+        notes: '',
+        rpe: '',
+      }
+    })
     setExerciseLogs(logs)
     setCurrentExIdx(0)
+    setLoadingDayId(null)
     setStep('log-exercises')
-
-    const ids = (day.exercises || []).map((ex) => ex.id).join(',')
-    if (ids) {
-      fetch(`/api/workouts?type=previous_notes&exercise_ids=${ids}`)
-        .then((r) => r.json())
-        .then(setPreviousNotes)
-    }
   }
 
   function updateLog(field: keyof ExerciseLog, value: string) {
@@ -165,7 +213,6 @@ export default function WorkoutLogPage() {
 
     setSaving(false)
     if (res.ok) {
-      // Clear draft on successful save
       if (selectedDay) localStorage.removeItem(`${DRAFT_PREFIX}${selectedDay.id}`)
       router.push('/workouts')
     }
@@ -192,7 +239,9 @@ export default function WorkoutLogPage() {
           {plan.days?.map((day) => (
             <Card
               key={day.id}
-              className="cursor-pointer hover:bg-accent transition-colors"
+              className={`transition-colors ${
+                loadingDayId ? 'cursor-default opacity-70' : 'cursor-pointer hover:bg-accent'
+              }`}
               onClick={() => selectDay(day)}
             >
               <CardContent className="py-4 flex items-center justify-between">
@@ -202,7 +251,11 @@ export default function WorkoutLogPage() {
                     {day.exercises?.length || 0} esercizi
                   </p>
                 </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                {loadingDayId === day.id ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                )}
               </CardContent>
             </Card>
           ))}
@@ -215,6 +268,8 @@ export default function WorkoutLogPage() {
     const log = exerciseLogs[currentExIdx]
     const total = exerciseLogs.length
     const isLast = currentExIdx === total - 1
+    const prog = progressions[log.plan_exercise_id]
+    const prevPerf = lastPerformance[log.plan_exercise_id]
 
     return (
       <div className="p-4 space-y-4">
@@ -222,7 +277,9 @@ export default function WorkoutLogPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => currentExIdx > 0 ? setCurrentExIdx(i => i - 1) : setStep('select-day')}
+            onClick={() =>
+              currentExIdx > 0 ? setCurrentExIdx((i) => i - 1) : setStep('select-day')
+            }
           >
             <ChevronLeft className="h-5 w-5" />
           </Button>
@@ -230,7 +287,9 @@ export default function WorkoutLogPage() {
             <p className="text-xs text-muted-foreground">{selectedDay?.day_name}</p>
             <h1 className="text-lg font-bold">{log.name}</h1>
           </div>
-          <span className="ml-auto text-sm text-muted-foreground">{currentExIdx + 1}/{total}</span>
+          <span className="ml-auto text-sm text-muted-foreground">
+            {currentExIdx + 1}/{total}
+          </span>
         </div>
 
         {/* Progress dots */}
@@ -238,7 +297,9 @@ export default function WorkoutLogPage() {
           {exerciseLogs.map((_, i) => (
             <button
               key={i}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${i <= currentExIdx ? 'bg-primary' : 'bg-muted'}`}
+              className={`h-1.5 flex-1 rounded-full transition-colors ${
+                i <= currentExIdx ? 'bg-primary' : 'bg-muted'
+              }`}
               onClick={() => setCurrentExIdx(i)}
             />
           ))}
@@ -246,6 +307,38 @@ export default function WorkoutLogPage() {
 
         <Card>
           <CardContent className="pt-6 space-y-4">
+            {/* Target badge + copy button */}
+            {(prog || prevPerf) && (
+              <div className="flex items-center justify-between">
+                {prog ? (
+                  <span className="text-xs font-medium text-primary">
+                    🎯 Target:{' '}
+                    {prog.target_weight_kg != null ? `${prog.target_weight_kg}kg × ` : ''}
+                    {prog.target_sets != null && prog.target_reps != null
+                      ? `${prog.target_sets}×${prog.target_reps}`
+                      : prog.target_sets != null
+                      ? `${prog.target_sets} serie`
+                      : ''}
+                  </span>
+                ) : (
+                  <span />
+                )}
+                {prevPerf && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => {
+                      if (prevPerf.sets_done) updateLog('sets_done', prevPerf.sets_done)
+                      if (prevPerf.reps_done) updateLog('reps_done', prevPerf.reps_done)
+                      if (prevPerf.weight_kg) updateLog('weight_kg', prevPerf.weight_kg)
+                    }}
+                  >
+                    Copia da ultima volta
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Serie eseguite</Label>
@@ -291,7 +384,9 @@ export default function WorkoutLogPage() {
               {previousNotes[log.plan_exercise_id] && (
                 <div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
                   <span className="mt-0.5 shrink-0">📝</span>
-                  <span className="italic">Ultima volta: {previousNotes[log.plan_exercise_id]}</span>
+                  <span className="italic">
+                    Ultima volta: {previousNotes[log.plan_exercise_id]}
+                  </span>
                 </div>
               )}
               <Textarea
@@ -310,7 +405,7 @@ export default function WorkoutLogPage() {
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button className="w-full" onClick={() => setCurrentExIdx(i => i + 1)}>
+          <Button className="w-full" onClick={() => setCurrentExIdx((i) => i + 1)}>
             Prossimo esercizio
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -343,7 +438,9 @@ export default function WorkoutLogPage() {
                   {log.weight_kg && ` @ ${log.weight_kg}kg`}
                   {log.rpe && ` · RPE ${log.rpe}`}
                 </p>
-                {log.notes && <p className="text-xs text-muted-foreground italic mt-0.5">{log.notes}</p>}
+                {log.notes && (
+                  <p className="text-xs text-muted-foreground italic mt-0.5">{log.notes}</p>
+                )}
               </div>
             ))}
           </div>
