@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { BodyMeasurement, WorkoutSession, DietLog, DietPlan } from '@/lib/types'
+import { BodyMeasurement, WorkoutSession, DietLog, DietPlan, WorkoutPlan, WorkoutPlanDay } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { formatDate, today } from '@/lib/utils'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Activity,
   Dumbbell,
@@ -15,22 +17,36 @@ import {
   TrendingDown,
   Minus,
   ChevronRight,
+  Loader2,
+  Check,
+  Send,
+  X,
 } from 'lucide-react'
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [latestMeasurement, setLatestMeasurement] = useState<BodyMeasurement | null>(null)
   const [prevMeasurement, setPrevMeasurement] = useState<BodyMeasurement | null>(null)
   const [lastSession, setLastSession] = useState<(WorkoutSession & { plan_day?: { day_name: string } }) | null>(null)
   const [weekLogs, setWeekLogs] = useState<DietLog[]>([])
   const [dietPlan, setDietPlan] = useState<DietPlan | null>(null)
+  const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null)
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const [weightInput, setWeightInput] = useState('')
+  const [weightSaving, setWeightSaving] = useState(false)
+  const [weightDone, setWeightDone] = useState(false)
+  const [quickMealText, setQuickMealText] = useState('')
+  const [quickMealSaving, setQuickMealSaving] = useState(false)
+  const [quickMealDone, setQuickMealDone] = useState(false)
 
   useEffect(() => {
     async function loadAll() {
-      const [bodyRes, sessionsRes, dietWeekRes, dietPlanRes] = await Promise.all([
+      const [bodyRes, sessionsRes, dietWeekRes, dietPlanRes, workoutPlanRes] = await Promise.all([
         fetch('/api/body?days=60'),
         fetch('/api/workouts?type=sessions&days=7'),
         fetch('/api/diet?type=logs&days=7'),
         fetch('/api/diet?type=plan'),
+        fetch('/api/workouts?type=plan'),
       ])
 
       if (bodyRes.ok) {
@@ -46,6 +62,11 @@ export default function DashboardPage() {
 
       if (dietWeekRes.ok) setWeekLogs(await dietWeekRes.json())
       if (dietPlanRes.ok) setDietPlan(await dietPlanRes.json())
+      if (workoutPlanRes.ok) {
+        const plan = await workoutPlanRes.json()
+        setWorkoutPlan(plan)
+      }
+      setDataLoaded(true)
     }
 
     loadAll()
@@ -109,6 +130,42 @@ export default function DashboardPage() {
     return 'bg-primary'
   }
 
+  function getNextPlanDay(): WorkoutPlanDay | null {
+    if (!workoutPlan?.days?.length) return null
+    const days = workoutPlan.days
+    const planDayId = lastSession?.plan_day_id
+    if (!planDayId) return days[0]
+    const idx = days.findIndex((d) => d.id === planDayId)
+    if (idx === -1) return days[0]
+    return days[(idx + 1) % days.length]
+  }
+
+  async function saveWeight() {
+    if (!weightInput) return
+    setWeightSaving(true)
+    const res = await fetch('/api/body', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weight_kg: parseFloat(weightInput), date: today() }),
+    })
+    setWeightSaving(false)
+    if (res.ok) setWeightDone(true)
+  }
+
+  async function logQuickMeal() {
+    if (!quickMealText.trim()) return
+    setQuickMealSaving(true)
+    const res = await fetch('/api/diet/quick-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: quickMealText }),
+    })
+    setQuickMealSaving(false)
+    if (res.ok) setQuickMealDone(true)
+  }
+
+  const nextDay = workoutPlan ? getNextPlanDay() : null
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between pt-2">
@@ -123,6 +180,124 @@ export default function DashboardPage() {
           </Link>
         </Button>
       </div>
+
+      {/* ── Quick action widgets ─────────────────────────────────────── */}
+
+      {/* Inizia Allenamento */}
+      {dataLoaded && workoutPlan && lastSession?.date !== today() && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                  <Dumbbell className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Allenamento di oggi</p>
+                  <p className="text-xs text-muted-foreground">
+                    {nextDay?.day_name || 'Sessione libera'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() =>
+                  router.push(`/workouts/log${nextDay ? `?day_id=${nextDay.id}` : ''}`)
+                }
+              >
+                Inizia
+                <ChevronRight className="h-3 w-3" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Log Peso */}
+      {dataLoaded && !weightDone && (!latestMeasurement || latestMeasurement.date !== today()) && (
+        <Card>
+          <CardContent className="py-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-medium">Registra peso di oggi</p>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                step="0.1"
+                placeholder={
+                  latestMeasurement?.weight_kg ? String(latestMeasurement.weight_kg) : '75.5'
+                }
+                value={weightInput}
+                onChange={(e) => setWeightInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveWeight()}
+                className="h-9"
+              />
+              <Button
+                size="sm"
+                onClick={saveWeight}
+                disabled={!weightInput || weightSaving}
+                className="h-9 shrink-0"
+              >
+                {weightSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Log Pasto Veloce */}
+      <Card>
+        <CardContent className="py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Salad className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">Log pasto veloce</p>
+          </div>
+          {quickMealDone ? (
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm text-green-500">
+                <Check className="h-4 w-4" />
+                Pasto registrato!
+              </span>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  setQuickMealDone(false)
+                  setQuickMealText('')
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                placeholder="Es: 200g pollo, 100g riso, insalata..."
+                value={quickMealText}
+                onChange={(e) => setQuickMealText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && logQuickMeal()}
+                className="h-9"
+              />
+              <Button
+                size="sm"
+                onClick={logQuickMeal}
+                disabled={!quickMealText.trim() || quickMealSaving}
+                className="h-9 shrink-0"
+              >
+                {quickMealSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Weight widget */}
       <Link href="/body">

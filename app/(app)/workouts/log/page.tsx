@@ -64,8 +64,10 @@ export default function WorkoutLogPage() {
   const [lastPerformance, setLastPerformance] = useState<Record<string, LastPerf>>({})
   const [loadingDayId, setLoadingDayId] = useState<string | null>(null)
 
-  // Restore any existing draft on mount
+  // Restore any existing draft on mount (skip if day_id param — plan effect handles it)
   useEffect(() => {
+    const dayId = new URLSearchParams(window.location.search).get('day_id')
+    if (dayId) return
     const draftKey = Object.keys(localStorage).find((k) => k.startsWith(DRAFT_PREFIX))
     if (!draftKey) return
     try {
@@ -105,8 +107,15 @@ export default function WorkoutLogPage() {
   useEffect(() => {
     fetch('/api/workouts?type=plan')
       .then((r) => r.json())
-      .then(setPlan)
-  }, [])
+      .then(async (data) => {
+        setPlan(data)
+        const dayId = new URLSearchParams(window.location.search).get('day_id')
+        if (dayId && data?.days) {
+          const matchedDay = data.days.find((d: WorkoutPlanDay) => d.id === dayId)
+          if (matchedDay) await selectDay(matchedDay)
+        }
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function selectDay(day: WorkoutPlanDay) {
     if (loadingDayId) return
