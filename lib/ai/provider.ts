@@ -82,7 +82,8 @@ export interface AIProvider {
     prompt: string,
     systemPrompt: string,
     schema: z.ZodType<T>,
-    maxTokens?: number
+    maxTokens?: number,
+    modelOverride?: string
   ): Promise<T>
 
   /**
@@ -110,10 +111,14 @@ export class AnthropicProvider implements AIProvider {
     prompt: string,
     systemPrompt: string,
     schema: z.ZodType<T>,
-    maxTokens = 3000
+    maxTokens = 3000,
+    modelOverride?: string
   ): Promise<T> {
     if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
+    const model = modelOverride ?? process.env.ANTHROPIC_TEXT_MODEL ?? 'claude-sonnet-4-6'
+    // Non-default model overrides (e.g. Haiku) cap at 4096; Sonnet uses extended 8192
+    const maxOutputTokens = modelOverride ? 4096 : 8192
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const userContent =
@@ -121,16 +126,19 @@ export class AnthropicProvider implements AIProvider {
         retryNote(attempt, lastError) +
         '\n\nRispondi ESCLUSIVAMENTE con JSON valido, nessun testo prima o dopo.'
 
+      // The beta header is only valid for the default claude-3-5-sonnet model
+      const createOptions = modelOverride
+        ? {}
+        : { headers: { 'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15' } }
+
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_TEXT_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 8192,
+        model,
+        max_tokens: maxOutputTokens,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [
           { role: 'user', content: userContent },
         ],
-      }, {
-        headers: { 'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15' },
-      })
+      }, createOptions)
 
       try {
         const rawText = (response.content[0] as Anthropic.TextBlock).text
@@ -278,7 +286,8 @@ export class OpenAICompatibleProvider implements AIProvider {
     prompt: string,
     systemPrompt: string,
     schema: z.ZodType<T>,
-    maxTokens = 8192
+    maxTokens = 8192,
+    modelOverride?: string
   ): Promise<T> {
     if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
@@ -293,7 +302,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       messages.push({ role: 'user', content: prompt + retryNote(attempt, lastError) })
 
       try {
-        const raw = await this.callCompletion(this.textModel, messages, maxTokens, true)
+        const raw = await this.callCompletion(modelOverride ?? this.textModel, messages, maxTokens, true)
         return schema.parse(JSON.parse(extractJson(raw)))
       } catch (err) {
         lastError = err instanceof Error ? err.message : 'Errore sconosciuto'
@@ -365,4 +374,37 @@ export function getAIProvider(): AIProvider {
       : new AnthropicProvider()
 
   return _provider
+}
+
+// ─── Intent Classifier ─────────────────────────────────────────────────────────
+// Cheap Haiku call that routes messages before committing to a full Sonnet call.
+// Only implemented for Anthropic; other providers fall through to 'complex_coach'.
+
+export type MessageIntent = 'simple_ack' | 'data_mutation' | 'complex_coach'
+
+const CLASSIFIER_MODEL = 'claude-3-haiku-20240307'
+
+export async function classifyIntent(userMessage: string): Promise<MessageIntent> {
+  if ((process.env.AI_PROVIDER ?? 'anthropic') !== 'anthropic') return 'complex_coach'
+
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const response = await client.messages.create({
+      model: CLASSIFIER_MODEL,
+      max_tokens: 20,
+      system: `Sei un classificatore di intent. Analizza il messaggio e rispondi SOLO con uno di questi JSON:
+{"intent":"simple_ack"}    → conferme pure: "ok","grazie","capito","perfetto","sì","no","👍"
+{"intent":"data_mutation"} → aggiornamento esplicito dati: peso esercizio, log cibo, note, target macro
+{"intent":"complex_coach"} → tutto il resto (analisi, consigli, progressi, dolori, scheda, domande)
+In caso di dubbio usa sempre "complex_coach". Nient'altro oltre al JSON.`,
+      messages: [{ role: 'user', content: userMessage }],
+    })
+
+    const text = response.content[0].type === 'text' ? response.content[0].text.trim() : ''
+    const match = text.match(/"intent"\s*:\s*"(simple_ack|data_mutation|complex_coach)"/)
+    if (match) return match[1] as MessageIntent
+  } catch {
+    // Classification failure is non-fatal — fall through to safe default
+  }
+  return 'complex_coach'
 }
