@@ -334,6 +334,13 @@ export function ChatInterface() {
     })
   }
 
+  // ── End-of-meso: accept all AI recommendations ────────────────────────────
+
+  function acceptAllRecommendations() {
+    setKeepOverrides(new Set())  // clear every user override → pure AI output
+    setChangesExpanded(true)     // expand list so user can verify what they accepted
+  }
+
   // ── End-of-meso apply ───────────────────────────────────────────────────────
 
   async function applyEndOfMeso() {
@@ -789,6 +796,19 @@ export function ChatInterface() {
                   {endOfMesoAnalysis.new_meso_targets.notes}
                 </p>
               </div>
+
+              {/* Accept all — resets every user override to match the AI output */}
+              {endOfMesoAnalysis.exercise_changes.length > 0 && (
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={acceptAllRecommendations}
+                  disabled={endOfMesoApplying}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Accetta tutte le raccomandazioni AI
+                </Button>
+              )}
 
               {/* Exercise changes */}
               <div className="space-y-1">
