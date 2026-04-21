@@ -4,6 +4,66 @@
 // the generated `/sw.js`, so anything registered here runs inside the SW
 // global scope (self). No window / document access available.
 
+import { get, update } from 'idb-keyval'
+
+const QUEUE_KEY = 'offline_sync_queue'
+const SYNC_TAG = 'workout-sync'
+
+async function flushOfflineQueue() {
+  const queue = (await get(QUEUE_KEY)) || []
+  if (queue.length === 0) return
+
+  const delivered = new Set()
+  const dropped = new Set()
+  let hadTransientFailure = false
+
+  for (const item of queue) {
+    try {
+      const res = await fetch(item.endpoint, {
+        method: item.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: item.body,
+        credentials: 'same-origin',
+      })
+      if (res.ok) {
+        delivered.add(item.id)
+      } else if (res.status >= 400 && res.status < 500) {
+        // Server said "no" — drop so we don't retry forever.
+        dropped.add(item.id)
+      } else {
+        // 5xx: stop; the browser will re-fire the sync event on a backoff.
+        hadTransientFailure = true
+        break
+      }
+    } catch {
+      hadTransientFailure = true
+      break
+    }
+  }
+
+  const toRemove = new Set([...delivered, ...dropped])
+  if (toRemove.size > 0) {
+    await update(QUEUE_KEY, (prev) => (prev || []).filter((r) => !toRemove.has(r.id)))
+  }
+
+  // Re-throw so the Background Sync runtime knows this attempt didn't finish
+  // and schedules a retry. Without this the remaining items would sit idle
+  // until the user reopens the app.
+  if (hadTransientFailure) {
+    throw new Error('offline-queue: partial flush, retry later')
+  }
+}
+
+// ─── Background Sync ─────────────────────────────────────────────────────────
+// Fired by the browser once connectivity is back (Chrome, Edge, Android).
+// iOS Safari ignores this — the main thread's OfflineSyncReplay hook handles
+// those users on the next app load.
+self.addEventListener('sync', (event) => {
+  if (event.tag === SYNC_TAG) {
+    event.waitUntil(flushOfflineQueue())
+  }
+})
+
 // ─── Push event ──────────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
   // Payload may be absent when the push service woke us up without data.

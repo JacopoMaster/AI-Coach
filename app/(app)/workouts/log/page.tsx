@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { today } from '@/lib/utils'
+import { enqueue, SYNC_TAG } from '@/lib/offline/sync-queue'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
 
@@ -63,6 +64,9 @@ export default function WorkoutLogPage() {
   const [progressions, setProgressions] = useState<Record<string, ExerciseProgression>>({})
   const [lastPerformance, setLastPerformance] = useState<Record<string, LastPerf>>({})
   const [loadingDayId, setLoadingDayId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; tone: 'success' | 'warning' | 'error' } | null>(
+    null
+  )
 
   // Restore any existing draft on mount (skip if day_id param — plan effect handles it)
   useEffect(() => {
@@ -197,6 +201,33 @@ export default function WorkoutLogPage() {
     })
   }
 
+  async function queueOffline(body: string) {
+    await enqueue({ endpoint: '/api/workouts', method: 'POST', body })
+    // Ask the browser to replay the queue as soon as connectivity returns.
+    // iOS Safari doesn't expose SyncManager — the in-app replay hook handles
+    // that case on the next page load.
+    if (
+      typeof navigator !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      typeof window !== 'undefined' &&
+      'SyncManager' in window
+    ) {
+      try {
+        const reg = await navigator.serviceWorker.ready
+        // SyncManager types aren't in the default DOM lib yet.
+        await (reg as unknown as { sync?: { register: (tag: string) => Promise<void> } })
+          .sync?.register(SYNC_TAG)
+      } catch {
+        // Registration failure is non-fatal; fallback replay will pick it up.
+      }
+    }
+  }
+
+  function finishSuccess() {
+    if (selectedDay) localStorage.removeItem(`${DRAFT_PREFIX}${selectedDay.id}`)
+    router.push('/workouts')
+  }
+
   async function saveSession() {
     setSaving(true)
     const exercises = exerciseLogs.map((log) => ({
@@ -208,22 +239,62 @@ export default function WorkoutLogPage() {
       rpe: log.rpe ? parseInt(log.rpe) : null,
     }))
 
-    const res = await fetch('/api/workouts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'log_session',
-        date: today(),
-        plan_day_id: selectedDay?.id || null,
-        overall_notes: overallNotes || null,
-        exercises,
-      }),
+    const body = JSON.stringify({
+      action: 'log_session',
+      date: today(),
+      plan_day_id: selectedDay?.id || null,
+      overall_notes: overallNotes || null,
+      exercises,
     })
 
-    setSaving(false)
-    if (res.ok) {
-      if (selectedDay) localStorage.removeItem(`${DRAFT_PREFIX}${selectedDay.id}`)
-      router.push('/workouts')
+    const OFFLINE_MSG =
+      'Rete assente. Allenamento salvato offline, verrà sincronizzato appena possibile.'
+
+    // Fast-fail: the browser already knows we're offline — skip the wasted
+    // fetch attempt and go straight to the queue.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      await queueOffline(body)
+      setSaving(false)
+      setToast({ msg: OFFLINE_MSG, tone: 'warning' })
+      setTimeout(finishSuccess, 1200)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/workouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+
+      if (res.ok) {
+        setSaving(false)
+        finishSuccess()
+        return
+      }
+
+      // 5xx: treat as transient — queue and redirect like offline success.
+      if (res.status >= 500) {
+        await queueOffline(body)
+        setSaving(false)
+        setToast({
+          msg: 'Server non raggiungibile. Salvato offline, riproverò più tardi.',
+          tone: 'warning',
+        })
+        setTimeout(finishSuccess, 1200)
+        return
+      }
+
+      // 4xx: genuine client error — don't silently queue garbage.
+      setSaving(false)
+      setToast({ msg: 'Errore nel salvataggio. Controlla i dati.', tone: 'error' })
+      setTimeout(() => setToast(null), 3000)
+    } catch {
+      // `fetch` threw → network layer is gone (DNS, captive portal, airplane).
+      await queueOffline(body)
+      setSaving(false)
+      setToast({ msg: OFFLINE_MSG, tone: 'warning' })
+      setTimeout(finishSuccess, 1200)
     }
   }
 
@@ -470,6 +541,22 @@ export default function WorkoutLogPage() {
         {saving ? <Loader2 className="animate-spin" /> : <Check className="h-4 w-4" />}
         Salva Sessione
       </Button>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed left-1/2 -translate-x-1/2 bottom-24 z-50 max-w-sm w-[calc(100%-2rem)] rounded-md px-4 py-3 text-sm shadow-lg ${
+            toast.tone === 'warning'
+              ? 'bg-amber-500/95 text-amber-950'
+              : toast.tone === 'error'
+              ? 'bg-red-500/95 text-red-50'
+              : 'bg-emerald-500/95 text-emerald-50'
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   )
 }
