@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { DietPlan, WorkoutPlan } from '@/lib/types'
 import { LogOut, Loader2 } from 'lucide-react'
+import { PushNotificationsCard } from '@/components/settings/push-notifications-card'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -97,6 +98,9 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Push notifications (Proactive Coach) */}
+      <PushNotificationsCard />
 
       {/* Active workout plan info */}
       <Card>
