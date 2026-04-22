@@ -8,7 +8,8 @@
       "Bash(node:*)",
       "Bash(find \"C:\\\\Users\\\\Utente\\\\Desktop\\\\AI Projects\\\\AI Coach\" -type f \\\\\\( -name \"*workout*\" -o -name \"*session*\" -o -name \"*exercise*\" \\\\\\) -not -path \"*/.next/*\" -not -path \"*/node_modules/*\" 2>/dev/null | head -20)",
       "Bash(npx next *)",
-      "Bash(npm uninstall *)"
+      "Bash(npm uninstall *)",
+      "Bash(git mv *)"
     ]
   }
 }
