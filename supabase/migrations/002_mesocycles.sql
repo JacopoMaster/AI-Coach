@@ -8,7 +8,7 @@
 --    duration_weeks: 6 or 8
 --    status: active (in progress) | completed (ended) | archived (hidden)
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE mesocycles (
+CREATE TABLE IF NOT EXISTS mesocycles (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   workout_plan_id UUID        NOT NULL REFERENCES workout_plans(id) ON DELETE CASCADE,
@@ -23,22 +23,26 @@ CREATE TABLE mesocycles (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX mesocycles_user_status_idx ON mesocycles (user_id, status);
+CREATE INDEX IF NOT EXISTS mesocycles_user_status_idx ON mesocycles (user_id, status);
 
 ALTER TABLE mesocycles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own mesocycles" ON mesocycles;
 CREATE POLICY "Users can read own mesocycles"
   ON mesocycles FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own mesocycles" ON mesocycles;
 CREATE POLICY "Users can insert own mesocycles"
   ON mesocycles FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own mesocycles" ON mesocycles;
 CREATE POLICY "Users can update own mesocycles"
   ON mesocycles FOR UPDATE
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own mesocycles" ON mesocycles;
 CREATE POLICY "Users can delete own mesocycles"
   ON mesocycles FOR DELETE
   USING (auth.uid() = user_id);
@@ -50,7 +54,7 @@ CREATE POLICY "Users can delete own mesocycles"
 --    One row per (plan_exercise, week_number) pair.
 --    Populated either by the AI check-in or manually by the user.
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE exercise_progressions (
+CREATE TABLE IF NOT EXISTS exercise_progressions (
   id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
   mesocycle_id     UUID         NOT NULL REFERENCES mesocycles(id) ON DELETE CASCADE,
   plan_exercise_id UUID         NOT NULL REFERENCES plan_exercises(id) ON DELETE CASCADE,
@@ -62,11 +66,12 @@ CREATE TABLE exercise_progressions (
   UNIQUE (plan_exercise_id, week_number)
 );
 
-CREATE INDEX exercise_progressions_meso_idx ON exercise_progressions (mesocycle_id);
+CREATE INDEX IF NOT EXISTS exercise_progressions_meso_idx ON exercise_progressions (mesocycle_id);
 
 ALTER TABLE exercise_progressions ENABLE ROW LEVEL SECURITY;
 
 -- Access is granted transitively through the mesocycle owner.
+DROP POLICY IF EXISTS "Users can read own exercise progressions" ON exercise_progressions;
 CREATE POLICY "Users can read own exercise progressions"
   ON exercise_progressions FOR SELECT
   USING (
@@ -77,6 +82,7 @@ CREATE POLICY "Users can read own exercise progressions"
     )
   );
 
+DROP POLICY IF EXISTS "Users can insert own exercise progressions" ON exercise_progressions;
 CREATE POLICY "Users can insert own exercise progressions"
   ON exercise_progressions FOR INSERT
   WITH CHECK (
@@ -87,6 +93,7 @@ CREATE POLICY "Users can insert own exercise progressions"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update own exercise progressions" ON exercise_progressions;
 CREATE POLICY "Users can update own exercise progressions"
   ON exercise_progressions FOR UPDATE
   USING (
@@ -97,6 +104,7 @@ CREATE POLICY "Users can update own exercise progressions"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete own exercise progressions" ON exercise_progressions;
 CREATE POLICY "Users can delete own exercise progressions"
   ON exercise_progressions FOR DELETE
   USING (
@@ -115,7 +123,7 @@ CREATE POLICY "Users can delete own exercise progressions"
 --    ai_analysis:  structured JSON returned by the LLM (validated via Zod).
 --    applied:      true once the user confirms and changes are written to DB.
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE weekly_check_ins (
+CREATE TABLE IF NOT EXISTS weekly_check_ins (
   id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id        UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   mesocycle_id   UUID        NOT NULL REFERENCES mesocycles(id) ON DELETE CASCADE,
@@ -129,22 +137,26 @@ CREATE TABLE weekly_check_ins (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX weekly_check_ins_user_meso_idx ON weekly_check_ins (user_id, mesocycle_id);
+CREATE INDEX IF NOT EXISTS weekly_check_ins_user_meso_idx ON weekly_check_ins (user_id, mesocycle_id);
 
 ALTER TABLE weekly_check_ins ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own check-ins" ON weekly_check_ins;
 CREATE POLICY "Users can read own check-ins"
   ON weekly_check_ins FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own check-ins" ON weekly_check_ins;
 CREATE POLICY "Users can insert own check-ins"
   ON weekly_check_ins FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own check-ins" ON weekly_check_ins;
 CREATE POLICY "Users can update own check-ins"
   ON weekly_check_ins FOR UPDATE
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own check-ins" ON weekly_check_ins;
 CREATE POLICY "Users can delete own check-ins"
   ON weekly_check_ins FOR DELETE
   USING (auth.uid() = user_id);

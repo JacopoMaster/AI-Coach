@@ -12,9 +12,11 @@
 --   -- Re-open the SQL editor session for the GUC to be visible.
 -- ────────────────────────────────────────────────────────────────────────────
 
--- 1. Enable the extensions. Both are owned by the `extensions` schema on Supabase.
-CREATE EXTENSION IF NOT EXISTS pg_cron  WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_net   WITH SCHEMA extensions;
+-- 1. Enable the extensions. On Supabase Pro they are pre-installed into the
+--    `extensions` schema; omit WITH SCHEMA so re-running won't trip the
+--    "dependent privileges exist" guard (SQLSTATE 2BP01).
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
 
 -- 2. Remove any previous schedule with the same name so re-running is idempotent.
 SELECT cron.unschedule('proactive-coach-daily')

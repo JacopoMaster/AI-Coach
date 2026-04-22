@@ -4,7 +4,7 @@ create extension if not exists "uuid-ossp";
 -- =============================================
 -- BODY MEASUREMENTS (FitDays scale data)
 -- =============================================
-create table body_measurements (
+create table if not exists body_measurements (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   date date not null,
@@ -26,7 +26,7 @@ create index body_measurements_user_date_idx on body_measurements(user_id, date 
 -- =============================================
 -- WORKOUT PLANS
 -- =============================================
-create table workout_plans (
+create table if not exists workout_plans (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
@@ -35,14 +35,14 @@ create table workout_plans (
   created_at timestamptz default now()
 );
 
-create table workout_plan_days (
+create table if not exists workout_plan_days (
   id uuid default uuid_generate_v4() primary key,
   plan_id uuid references workout_plans(id) on delete cascade not null,
   day_name text not null,
   day_order integer not null default 0
 );
 
-create table plan_exercises (
+create table if not exists plan_exercises (
   id uuid default uuid_generate_v4() primary key,
   day_id uuid references workout_plan_days(id) on delete cascade not null,
   name text not null,
@@ -56,7 +56,7 @@ create table plan_exercises (
 -- =============================================
 -- WORKOUT SESSIONS
 -- =============================================
-create table workout_sessions (
+create table if not exists workout_sessions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   date date not null default current_date,
@@ -67,7 +67,7 @@ create table workout_sessions (
 
 create index workout_sessions_user_date_idx on workout_sessions(user_id, date desc);
 
-create table session_exercises (
+create table if not exists session_exercises (
   id uuid default uuid_generate_v4() primary key,
   session_id uuid references workout_sessions(id) on delete cascade not null,
   plan_exercise_id uuid references plan_exercises(id) on delete set null,
@@ -81,7 +81,7 @@ create table session_exercises (
 -- =============================================
 -- DIET
 -- =============================================
-create table diet_plans (
+create table if not exists diet_plans (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
@@ -94,7 +94,7 @@ create table diet_plans (
   created_at timestamptz default now()
 );
 
-create table diet_logs (
+create table if not exists diet_logs (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   date date not null default current_date,
@@ -111,7 +111,7 @@ create index diet_logs_user_date_idx on diet_logs(user_id, date desc);
 -- =============================================
 -- AI CONVERSATIONS
 -- =============================================
-create table ai_conversations (
+create table if not exists ai_conversations (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references auth.users(id) on delete cascade not null unique,
   messages jsonb default '[]'::jsonb,

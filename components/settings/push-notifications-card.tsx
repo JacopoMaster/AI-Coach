@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Bell, BellOff, Loader2 } from 'lucide-react'
+import { Bell, BellOff, Loader2, Sparkles } from 'lucide-react'
 import {
   checkPushSupport,
   disablePushNotifications,
@@ -17,6 +17,9 @@ export function PushNotificationsCard() {
   const [error, setError] = useState<string | null>(null)
   const [unsupported, setUnsupported] = useState<string | null>(null)
 
+  const [morningEnabled, setMorningEnabled] = useState(true)
+  const [morningSaving, setMorningSaving] = useState(false)
+
   useEffect(() => {
     const support = checkPushSupport()
     if (!support.supported) {
@@ -24,8 +27,18 @@ export function PushNotificationsCard() {
       setLoading(false)
       return
     }
-    isPushEnabled()
-      .then(setEnabled)
+    Promise.all([
+      isPushEnabled(),
+      fetch('/api/notifications/preferences')
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ])
+      .then(([isOn, prefs]) => {
+        setEnabled(isOn)
+        if (prefs?.morning_motivation_enabled !== undefined) {
+          setMorningEnabled(Boolean(prefs.morning_motivation_enabled))
+        }
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -47,6 +60,25 @@ export function PushNotificationsCard() {
     }
   }
 
+  async function toggleMorning() {
+    const next = !morningEnabled
+    setMorningSaving(true)
+    setMorningEnabled(next) // optimistic
+    try {
+      const res = await fetch('/api/notifications/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ morning_motivation_enabled: next }),
+      })
+      if (!res.ok) throw new Error('Salvataggio preferenze fallito')
+    } catch (err) {
+      setMorningEnabled(!next) // rollback
+      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setMorningSaving(false)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -63,21 +95,39 @@ export function PushNotificationsCard() {
             Notifiche non disponibili su questo browser ({unsupported}).
           </p>
         ) : (
-          <Button
-            onClick={toggle}
-            disabled={loading}
-            variant={enabled ? 'outline' : 'default'}
-            className="w-full"
-          >
-            {loading ? (
-              <Loader2 className="animate-spin h-4 w-4" />
-            ) : enabled ? (
-              <BellOff className="h-4 w-4" />
-            ) : (
-              <Bell className="h-4 w-4" />
+          <>
+            <Button
+              onClick={toggle}
+              disabled={loading}
+              variant={enabled ? 'outline' : 'default'}
+              className="w-full"
+            >
+              {loading ? (
+                <Loader2 className="animate-spin h-4 w-4" />
+              ) : enabled ? (
+                <BellOff className="h-4 w-4" />
+              ) : (
+                <Bell className="h-4 w-4" />
+              )}
+              {enabled ? 'Disattiva notifiche' : 'Attiva notifiche'}
+            </Button>
+
+            {enabled && (
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
+                <span className="flex items-center gap-2 text-sm">
+                  <Sparkles className="h-4 w-4 text-amber-400" />
+                  Promemoria Motivazionali Mattutini
+                </span>
+                <input
+                  type="checkbox"
+                  checked={morningEnabled}
+                  disabled={morningSaving}
+                  onChange={toggleMorning}
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
             )}
-            {enabled ? 'Disattiva notifiche' : 'Attiva notifiche'}
-          </Button>
+          </>
         )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}

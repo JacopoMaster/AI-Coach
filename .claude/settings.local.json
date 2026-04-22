@@ -9,7 +9,12 @@
       "Bash(find \"C:\\\\Users\\\\Utente\\\\Desktop\\\\AI Projects\\\\AI Coach\" -type f \\\\\\( -name \"*workout*\" -o -name \"*session*\" -o -name \"*exercise*\" \\\\\\) -not -path \"*/.next/*\" -not -path \"*/node_modules/*\" 2>/dev/null | head -20)",
       "Bash(npx next *)",
       "Bash(npm uninstall *)",
-      "Bash(git mv *)"
+      "Bash(git mv *)",
+      "Bash(SUPABASE_DB_PASSWORD='SpyXFamily989' npx supabase *)",
+      "Bash(python *)",
+      "Bash(psql --version)",
+      "Bash(npm ls *)",
+      "Bash(npx supabase *)"
     ]
   }
 }
