@@ -72,8 +72,10 @@ export function progressToNextLevel(totalExp: number): number {
   return Math.max(0, Math.min(1, (totalExp - floorExp) / (ceilExp - floorExp)))
 }
 
-/** Core Drill tier (1..10). Drives the SVG variant of the avatar. */
-const TIER_BREAKPOINTS = [1, 5, 15, 30, 50, 70, 85, 95, 99, 100] as const
+/** Core Drill tier (1..11). Drives the SVG variant of the avatar.
+ *  Breakpoints must stay in sync with `TIERS[].minLevel` in
+ *  `components/gamification/SpiralDrill.tsx`. */
+const TIER_BREAKPOINTS = [1, 10, 25, 45, 65, 85, 95, 100, 125, 175, 200] as const
 
 export function tierFromLevel(level: number): number {
   for (let i = TIER_BREAKPOINTS.length - 1; i >= 0; i--) {
@@ -93,20 +95,20 @@ export function stageFromLevel(level: number): SpiralStage {
 }
 
 const TIER_TITLES = [
-  'Novizio della Spirale',     // tier 1  (lvl 1..4)
-  'Scavatore del Sottosuolo',  // tier 2  (lvl 5..14)
-  'Perforatore Tenace',        // tier 3  (lvl 15..29)
-  'Pilota del Core Drill',     // tier 4  (lvl 30..49)
-  'Cavaliere della Trivella',  // tier 5  (lvl 50..69)
-  'Capitano della Forza',      // tier 6  (lvl 70..84)
-  'Comandante della Spirale',  // tier 7  (lvl 85..94)
-  'Generale Stellare',         // tier 8  (lvl 95..98)
-  'Guardiano del Cielo',       // tier 9  (lvl 99)
-  'Colui che Ha Sfondato',     // tier 10 (lvl 100..199)
+  'Lo Scavabuchi',                     // tier 1  (lvl 1..9)
+  'Ereditiere della Volontà',          // tier 2  (lvl 10..24)
+  'Membro della Brigata Dai-Gurren',   // tier 3  (lvl 25..44)
+  'Leader della Resistenza',           // tier 4  (lvl 45..64)
+  'Spirito Indomabile',                // tier 5  (lvl 65..84)
+  'Perforatore dei Cieli',             // tier 6  (lvl 85..94)
+  'Eroe della Galassia',               // tier 7  (lvl 95..99)
+  'Massa Critica',                     // tier 8  (lvl 100..124)
+  'Signore della Spirale',             // tier 9  (lvl 125..174)
+  'Tengen Toppa',                      // tier 10 (lvl 175..199)
+  'Super Tengen Toppa Gurren Lagann',  // tier 11 (lvl 200+)
 ] as const
 
-/** Flavor title for the current level. L200+ overrides to Tengen Toppa. */
+/** Flavor title for the current level. */
 export function titleFromLevel(level: number): string {
-  if (level >= 200) return 'Tengen Toppa'
   return TIER_TITLES[tierFromLevel(level) - 1]
 }

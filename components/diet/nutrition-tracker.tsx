@@ -30,14 +30,18 @@ function MacroBar({
       <div className="flex justify-between text-xs">
         <span className="font-medium">{label}</span>
         <span>
-          <span className="font-semibold">{Math.round(value)} {unit}</span>
-          <span className="text-muted-foreground"> / {target} {unit} ({pct}%)</span>
+          <span className="font-mono font-semibold tabular-nums">{Math.round(value)} {unit}</span>
+          <span className="text-muted-foreground font-mono tabular-nums"> / {target} {unit} ({pct}%)</span>
         </span>
       </div>
-      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+      <div className="h-2 w-full bg-muted rounded-full overflow-hidden ring-1 ring-inset ring-white/5">
         <div
           className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, backgroundColor: color }}
+          style={{
+            width: `${pct}%`,
+            backgroundColor: color,
+            boxShadow: `0 0 8px ${color}55`,
+          }}
         />
       </div>
     </div>
@@ -111,26 +115,26 @@ export default function NutritionTracker({ plan }: { plan: DietPlan | null }) {
               label="Calorie"
               value={totals.calories}
               target={plan?.calories ?? 2000}
-              color="#6366f1"
+              color="hsl(0 0% 92%)"
               unit="kcal"
             />
             <MacroBar
               label="Proteine"
               value={totals.proteins}
               target={plan?.protein_g ?? 150}
-              color="#22c55e"
+              color="hsl(var(--accent-resistenza))"
             />
             <MacroBar
               label="Carboidrati"
               value={totals.carbs}
               target={plan?.carbs_g ?? 200}
-              color="#f59e0b"
+              color="hsl(var(--accent-agilita))"
             />
             <MacroBar
               label="Grassi"
               value={totals.fats}
               target={plan?.fat_g ?? 70}
-              color="#f97316"
+              color="hsl(var(--accent-forza))"
             />
           </div>
 
@@ -150,10 +154,14 @@ export default function NutritionTracker({ plan }: { plan: DietPlan | null }) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">
                       {e.name}
-                      {e.grams ? <span className="text-muted-foreground font-normal"> – {e.grams}g</span> : null}
+                      {e.grams ? (
+                        <span className="text-muted-foreground font-normal">
+                          {' '}– <span className="font-mono tabular-nums">{e.grams}g</span>
+                        </span>
+                      ) : null}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {Math.round(e.calories)} kcal · P:{Math.round(e.proteins)}g · C:{Math.round(e.carbs)}g · G:{Math.round(e.fats)}g
+                    <p className="text-xs text-muted-foreground font-mono tabular-nums">
+                      {Math.round(e.calories)} kcal · <span className="text-resistenza">P:{Math.round(e.proteins)}g</span> · <span className="text-agilita">C:{Math.round(e.carbs)}g</span> · <span className="text-forza">G:{Math.round(e.fats)}g</span>
                     </p>
                   </div>
                   <button

@@ -15,7 +15,8 @@
       "Bash(psql --version)",
       "Bash(npm ls *)",
       "Bash(npx supabase *)",
-      "Bash(supabase --version)"
+      "Bash(supabase --version)",
+      "Bash(echo \"EXIT_CODE=$?\")"
     ]
   }
 }

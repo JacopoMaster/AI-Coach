@@ -1,11 +1,22 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
+// Midnight Arcade card:
+//   • semi-transparent card surface with subtle backdrop-blur so the
+//     ink-black background shows through
+//   • zinc-800-ish border via the `--border` token
+//   • hover lifts the border to white/15 for a faint neon halo
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}
+      className={cn(
+        'rounded-lg border border-border/80 bg-card/70 text-card-foreground',
+        'backdrop-blur-sm shadow-sm',
+        'transition-colors duration-300',
+        'hover:border-white/15',
+        className
+      )}
       {...props}
     />
   )

@@ -37,21 +37,21 @@ export default function DietPage() {
           <CardContent>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-2xl font-bold">{plan.calories ?? '—'}</p>
+                <p className="text-2xl font-bold font-mono tabular-nums">{plan.calories ?? '—'}</p>
                 <p className="text-xs text-muted-foreground">kcal obiettivo</p>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 font-mono tabular-nums">
                 <p className="flex justify-between">
-                  <span className="text-muted-foreground">Proteine</span>
-                  <span>{plan.protein_g ?? '—'}g</span>
+                  <span className="text-muted-foreground font-sans">Proteine</span>
+                  <span className="text-resistenza">{plan.protein_g ?? '—'}g</span>
                 </p>
                 <p className="flex justify-between">
-                  <span className="text-muted-foreground">Carboidrati</span>
-                  <span>{plan.carbs_g ?? '—'}g</span>
+                  <span className="text-muted-foreground font-sans">Carboidrati</span>
+                  <span className="text-agilita">{plan.carbs_g ?? '—'}g</span>
                 </p>
                 <p className="flex justify-between">
-                  <span className="text-muted-foreground">Grassi</span>
-                  <span>{plan.fat_g ?? '—'}g</span>
+                  <span className="text-muted-foreground font-sans">Grassi</span>
+                  <span className="text-forza">{plan.fat_g ?? '—'}g</span>
                 </p>
               </div>
             </div>

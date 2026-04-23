@@ -52,9 +52,8 @@ export function HeroStatusStrip() {
     return <HeroStatusSkeleton />
   }
 
-  const { user_stats, title, tier, progress, exp_for_next_level, stat_totals, on_vacation, active_recent_24h } = data
+  const { user_stats, title, progress, exp_for_next_level, stat_totals, on_vacation } = data
   const level = user_stats?.level ?? 1
-  const expTotal = Number(user_stats?.exp_total ?? 0)
   const resonance = Number(user_stats?.resonance_mult ?? 1)
   const streak = user_stats?.perfect_week_streak ?? 0
 
@@ -79,14 +78,14 @@ export function HeroStatusStrip() {
           }}
         />
 
-        <div className="relative flex items-start gap-4">
-          {/* Avatar column */}
-          <div className="shrink-0">
-            <SpiralDrill tier={tier} resonance={resonance} active={active_recent_24h} size={72} />
+        <div className="relative space-y-4">
+          {/* Drill — level-driven hero visual */}
+          <div className="-mx-4 -mt-4">
+            <SpiralDrill level={level} />
           </div>
 
-          {/* Info column */}
-          <div className="min-w-0 flex-1 space-y-2">
+          {/* Info block */}
+          <div className="space-y-2">
             {/* Title row */}
             <div className="flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">

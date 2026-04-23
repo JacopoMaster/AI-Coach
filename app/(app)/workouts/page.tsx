@@ -95,24 +95,27 @@ export default function WorkoutsPage() {
 
       {/* ── Mesocycle banner ─────────────────────────────────────────────────── */}
       {meso && (
-        <Card className="border-primary/40 bg-primary/5">
+        <Card className="border-forza/40 bg-forza/[0.04]">
           <CardContent className="pt-4 pb-3 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-primary" />
-                <span className="text-sm font-semibold text-primary">{meso.name}</span>
+                <Trophy className="h-4 w-4 text-forza" />
+                <span className="text-sm font-semibold text-forza">{meso.name}</span>
               </div>
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-muted-foreground font-mono tabular-nums">
                 Settimana {meso.current_week}/{meso.duration_weeks}
               </span>
             </div>
-            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden ring-1 ring-inset ring-white/5">
               <div
-                className="h-full bg-primary rounded-full transition-all"
-                style={{ width: `${progressPct}%` }}
+                className="h-full rounded-full transition-all bg-resistenza"
+                style={{
+                  width: `${progressPct}%`,
+                  boxShadow: '0 0 8px hsl(var(--accent-resistenza) / 0.5)',
+                }}
               />
             </div>
-            <p className="text-xs text-muted-foreground text-right">{progressPct}% completato</p>
+            <p className="text-xs text-muted-foreground text-right font-mono tabular-nums">{progressPct}% completato</p>
           </CardContent>
         </Card>
       )}
@@ -164,7 +167,7 @@ export default function WorkoutsPage() {
                             <div className="flex items-center justify-between">
                               <span className="font-medium">{ex.name}</span>
                               <div className="flex items-center gap-2">
-                                <span className="text-muted-foreground text-xs">
+                                <span className="text-muted-foreground text-xs font-mono tabular-nums">
                                   {ex.sets}×{ex.reps}
                                   {ex.weight_kg && ` @ ${ex.weight_kg}kg`}
                                 </span>
@@ -187,18 +190,24 @@ export default function WorkoutsPage() {
                             {/* Weekly target */}
                             {prog && (
                               <div className="flex items-center justify-between mt-0.5 text-xs">
-                                <span className="text-primary font-medium">
-                                  Target sett. {meso?.current_week}:{' '}
-                                  {prog.target_sets && prog.target_reps
-                                    ? `${prog.target_sets}×${prog.target_reps}`
-                                    : '—'}
-                                  {prog.target_weight_kg ? ` @ ${prog.target_weight_kg}kg` : ''}
+                                <span className="text-resistenza font-medium">
+                                  <span className="font-sans">Target sett. </span>
+                                  <span className="font-mono tabular-nums">
+                                    {meso?.current_week}:{' '}
+                                    {prog.target_sets && prog.target_reps
+                                      ? `${prog.target_sets}×${prog.target_reps}`
+                                      : '—'}
+                                    {prog.target_weight_kg ? ` @ ${prog.target_weight_kg}kg` : ''}
+                                  </span>
                                 </span>
                                 {lastLog && (
                                   <span className="text-muted-foreground">
-                                    Ultimo: {lastLog.sets_done ?? '—'}×{lastLog.reps_done ?? '—'}
-                                    {lastLog.weight_kg ? ` @ ${lastLog.weight_kg}kg` : ''}
-                                    {lastLog.rpe ? ` RPE ${lastLog.rpe}` : ''}
+                                    <span className="font-sans">Ultimo: </span>
+                                    <span className="font-mono tabular-nums">
+                                      {lastLog.sets_done ?? '—'}×{lastLog.reps_done ?? '—'}
+                                      {lastLog.weight_kg ? ` @ ${lastLog.weight_kg}kg` : ''}
+                                      {lastLog.rpe ? ` RPE ${lastLog.rpe}` : ''}
+                                    </span>
                                   </span>
                                 )}
                               </div>

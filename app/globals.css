@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Midnight Arcade theme ─────────────────────────────────────────────────
+ * Deep ink-black background, slightly raised surfaces for cards, zinc-800
+ * borders, JetBrains Mono for numerics. The gamification accent trio
+ * (forza / resistenza / agilità) is exposed as CSS vars so Tailwind can
+ * pick them up via `text-forza`, `bg-resistenza/20`, etc.
+ * ────────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -24,28 +31,39 @@
     --input: 240 5.9% 90%;
     --ring: 240 10% 3.9%;
     --radius: 0.5rem;
+
+    /* Gamification accent trio — also defined on :root so the tokens
+     * resolve even if the `.dark` class is ever removed. */
+    --accent-forza:       0 85% 60%;   /* crimson */
+    --accent-resistenza:  188 86% 53%; /* cyan */
+    --accent-agilita:     48 96% 53%;  /* gold */
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    /* Midnight Arcade — ink-black base, raised card surface. */
+    --background: 240 20% 4%;
+    --foreground: 0 0% 96%;
+    --card: 240 16% 7%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 16% 7%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 240 10% 6%;
+    --secondary: 240 6% 12%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 10%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 6% 14%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 75% 55%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    --border: 240 6% 14%;          /* ~zinc-800 */
+    --input: 240 6% 14%;
+    --ring: 188 86% 53%;           /* cyan focus ring */
+
+    --accent-forza:       0 85% 60%;
+    --accent-resistenza:  188 86% 53%;
+    --accent-agilita:     48 96% 53%;
   }
 }
 
@@ -55,6 +73,16 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  /* Tabular numbers get the mono stack automatically. Anything typed with
+   * `tabular-nums` or `.font-mono` resolves to JetBrains Mono via --font-mono. */
+  .tabular-nums,
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 }
 
