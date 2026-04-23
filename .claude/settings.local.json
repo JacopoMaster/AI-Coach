@@ -14,7 +14,8 @@
       "Bash(python *)",
       "Bash(psql --version)",
       "Bash(npm ls *)",
-      "Bash(npx supabase *)"
+      "Bash(npx supabase *)",
+      "Bash(supabase --version)"
     ]
   }
 }

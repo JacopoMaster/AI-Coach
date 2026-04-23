@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { awardExp } from '@/lib/gamification/award-exp'
+import type { Reward } from '@/lib/gamification/types'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -30,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
 
-  // Handle bulk insert (CSV import)
+  // Handle bulk insert (CSV import) — no EXP award here (historical backfill bypass).
   if (Array.isArray(body)) {
     const records = body.map((r) => ({ ...r, user_id: user.id }))
     const { data, error } = await supabase
@@ -48,7 +50,28 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+
+  // ── Gamification: award EXP for single-measurement upsert ──────────────
+  // Idempotent via source_id = body_measurements.id. Upsert on (user_id,date)
+  // keeps the id stable on same-day re-weigh → no double-pay.
+  let reward: Reward | null = null
+  try {
+    const hasWeight = typeof data.weight_kg === 'number' && data.weight_kg > 0
+    const source = hasWeight ? 'weight_log' : 'body_measurement'
+    const baseExp = hasWeight ? 25 : 15
+    reward = await awardExp(supabase, {
+      userId: user.id,
+      source,
+      sourceId: data.id,
+      baseExp,
+      statTagged: 'agilita',
+      rationale: hasWeight ? 'Peso registrato' : 'Misurazione corporea',
+    })
+  } catch (err) {
+    console.error('[gamification] body measurement award failed:', err)
+  }
+
+  return NextResponse.json({ ...data, reward })
 }
 
 export async function DELETE(request: NextRequest) {

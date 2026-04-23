@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { formatDate, today } from '@/lib/utils'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { HeroStatusStrip } from '@/components/gamification/HeroStatusStrip'
+import { useSpiralState } from '@/hooks/use-spiral-state'
 import {
   Activity,
   Dumbbell,
@@ -25,6 +27,7 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { refresh: refreshSpiral } = useSpiralState()
   const [latestMeasurement, setLatestMeasurement] = useState<BodyMeasurement | null>(null)
   const [prevMeasurement, setPrevMeasurement] = useState<BodyMeasurement | null>(null)
   const [lastSession, setLastSession] = useState<(WorkoutSession & { plan_day?: { day_name: string } }) | null>(null)
@@ -149,7 +152,10 @@ export default function DashboardPage() {
       body: JSON.stringify({ weight_kg: parseFloat(weightInput), date: today() }),
     })
     setWeightSaving(false)
-    if (res.ok) setWeightDone(true)
+    if (res.ok) {
+      setWeightDone(true)
+      refreshSpiral()
+    }
   }
 
   async function logQuickMeal() {
@@ -161,24 +167,28 @@ export default function DashboardPage() {
       body: JSON.stringify({ text: quickMealText }),
     })
     setQuickMealSaving(false)
-    if (res.ok) setQuickMealDone(true)
+    if (res.ok) {
+      setQuickMealDone(true)
+      refreshSpiral()
+    }
   }
 
   const nextDay = workoutPlan ? getNextPlanDay() : null
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between pt-2">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">{formatDate(today())}</p>
+      {/* Hero Status Strip — replaces the old "Dashboard" title. */}
+      <div className="pt-2 space-y-3">
+        <HeroStatusStrip />
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-muted-foreground">{formatDate(today())}</p>
+          <Button asChild size="sm" variant="ghost" className="h-7 text-xs">
+            <Link href="/coach">
+              <MessageSquare className="h-3.5 w-3.5" />
+              Coach
+            </Link>
+          </Button>
         </div>
-        <Button asChild size="sm">
-          <Link href="/coach">
-            <MessageSquare className="h-4 w-4" />
-            Coach
-          </Link>
-        </Button>
       </div>
 
       {/* ── Quick action widgets ─────────────────────────────────────── */}

@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { awardExp } from '@/lib/gamification/award-exp'
+import type { Reward } from '@/lib/gamification/types'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -77,7 +79,37 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+
+    // ── Gamification: award EXP for the diet log ─────────────────────────
+    // Base 30 EXP, +20 bonus if protein hits 90% of the active plan target.
+    // Idempotent via source_id = diet_logs.id (upsert preserves the id on
+    // same-day re-log, so repeat edits on the same day don't double-pay).
+    let reward: Reward | null = null
+    try {
+      const { data: plan } = await supabase
+        .from('diet_plans')
+        .select('protein_g')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      const proteinTarget = plan?.protein_g ?? null
+      const hitProtein = proteinTarget ? (protein_g ?? 0) >= 0.9 * proteinTarget : false
+      const baseExp = 30 + (hitProtein ? 20 : 0)
+
+      reward = await awardExp(supabase, {
+        userId: user.id,
+        source: 'diet_log',
+        sourceId: data.id,
+        baseExp,
+        statTagged: 'resistenza',
+        rationale: hitProtein ? 'Log dieta + target proteico centrato' : 'Log dieta',
+      })
+    } catch (err) {
+      console.error('[gamification] diet log award failed:', err)
+    }
+
+    return NextResponse.json({ ...data, reward })
   }
 
   if (action === 'save_plan') {

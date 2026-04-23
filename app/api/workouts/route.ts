@@ -1,5 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { awardExp } from '@/lib/gamification/award-exp'
+import { detectGigaDrills } from '@/lib/gamification/check-giga-drill'
+import { levelFromTotalExp } from '@/lib/gamification/exp-curve'
+import type { Reward } from '@/lib/gamification/types'
 
 function getCurrentWeek(startDate: string, durationWeeks: number): number {
   const start = new Date(startDate)
@@ -411,7 +415,65 @@ export async function POST(request: NextRequest) {
       if (exError) return NextResponse.json({ error: exError.message }, { status: 500 })
     }
 
-    return NextResponse.json(session)
+    // ── Gamification: award EXP for the session + detect Giga Drill PRs ───
+    // Non-fatal: any error here MUST NOT break the save.
+    let reward: Reward | null = null
+    try {
+      const baseSessionExp = 100 + (exercises?.length ?? 0) * 15
+      reward = await awardExp(supabase, {
+        userId: user.id,
+        source: 'workout_session',
+        sourceId: session.id,
+        baseExp: baseSessionExp,
+        statTagged: 'forza',
+        rationale: `Sessione loggata (${exercises?.length ?? 0} esercizi)`,
+      })
+
+      // Giga Drill detection — use the level AFTER the session EXP is applied
+      // so the bonus scales against the user's current station.
+      const currentLevel = levelFromTotalExp(reward.new_total)
+      const gigaDrills = await detectGigaDrills(
+        supabase,
+        user.id,
+        currentLevel,
+        session.id,
+        (exercises ?? []) as Array<{
+          plan_exercise_id: string | null
+          weight_kg: number | null
+          sets_done: number | null
+          reps_done: string | number | null
+        }>
+      )
+
+      for (const gd of gigaDrills) {
+        const gigaReward = await awardExp(supabase, {
+          userId: user.id,
+          source: 'giga_drill_break',
+          sourceId: session.id,
+          baseExp: gd.bonus_exp,
+          statTagged: 'forza',
+          rationale: `Giga Drill: ${gd.exercise_name} +${(gd.improvement_pct * 100).toFixed(1)}%`,
+          justGigaDrill: true,
+        })
+        if (reward) {
+          reward.delta += gigaReward.delta
+          reward.new_total = gigaReward.new_total
+          reward.new_level = gigaReward.new_level
+          reward.leveled_up = reward.leveled_up || gigaReward.leveled_up
+          reward.giga_drill = {
+            exercise_name: gd.exercise_name,
+            from_tonnage: gd.from_tonnage,
+            to_tonnage: gd.to_tonnage,
+            improvement_pct: gd.improvement_pct,
+            bonus_exp: gigaReward.delta,
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[gamification] log_session award failed:', err)
+    }
+
+    return NextResponse.json({ ...session, reward })
   }
 
   if (action === 'update_exercise') {
