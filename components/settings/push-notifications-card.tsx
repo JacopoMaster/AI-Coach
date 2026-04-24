@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Bell, BellOff, Loader2, Sparkles } from 'lucide-react'
+import { Bell, BellOff, Check, Loader2, Send, Sparkles } from 'lucide-react'
 import {
   checkPushSupport,
   disablePushNotifications,
@@ -19,6 +19,15 @@ export function PushNotificationsCard() {
 
   const [morningEnabled, setMorningEnabled] = useState(true)
   const [morningSaving, setMorningSaving] = useState(false)
+
+  // Test-notification state — separate from the main toggle's `loading` so
+  // tapping Test doesn't grey out the enable/disable button.
+  const [testing, setTesting] = useState(false)
+  const [testFeedback, setTestFeedback] = useState<
+    | { tone: 'success'; msg: string }
+    | { tone: 'error'; msg: string }
+    | null
+  >(null)
 
   useEffect(() => {
     const support = checkPushSupport()
@@ -57,6 +66,42 @@ export function PushNotificationsCard() {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function sendTestNotification() {
+    setTesting(true)
+    setTestFeedback(null)
+    setError(null)
+    try {
+      const res = await fetch('/api/push/test', { method: 'POST' })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        delivered?: number
+        failed?: number
+        pruned?: number
+      }
+      if (!res.ok) {
+        throw new Error(body.error || `Invio test fallito (${res.status})`)
+      }
+      const delivered = body.delivered ?? 0
+      setTestFeedback({
+        tone: 'success',
+        msg:
+          delivered === 1
+            ? 'Notifica inviata. Controlla il dispositivo.'
+            : `Notifica inviata a ${delivered} dispositivi. Controlla il telefono.`,
+      })
+    } catch (err) {
+      setTestFeedback({
+        tone: 'error',
+        msg: err instanceof Error ? err.message : 'Errore sconosciuto',
+      })
+    } finally {
+      setTesting(false)
+      // Auto-dismiss the inline feedback after a few seconds so the card
+      // doesn't keep a stale badge around.
+      setTimeout(() => setTestFeedback(null), 5000)
     }
   }
 
@@ -142,6 +187,39 @@ export function PushNotificationsCard() {
                   aria-label="Promemoria Motivazionali Pomeridiani"
                 />
               </label>
+            )}
+
+            {/* Manual test trigger — only meaningful when push is enabled. */}
+            {enabled && (
+              <Button
+                onClick={sendTestNotification}
+                disabled={testing}
+                variant="secondary"
+                size="sm"
+                className="w-full"
+              >
+                {testing ? (
+                  <Loader2 className="animate-spin h-4 w-4" />
+                ) : testFeedback?.tone === 'success' ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {testing ? 'Invio in corso…' : 'Invia Notifica di Test'}
+              </Button>
+            )}
+
+            {testFeedback && (
+              <p
+                className={
+                  'text-xs ' +
+                  (testFeedback.tone === 'success'
+                    ? 'text-green-500'
+                    : 'text-red-500')
+                }
+              >
+                {testFeedback.msg}
+              </p>
             )}
           </>
         )}
