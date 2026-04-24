@@ -8,7 +8,7 @@
 
 # 🌀 SPIRALE — AI COACH
 
-### **«Chi diavolo credi che io sia?!»**
+### **«Con chi credi di avere a che fare?!»**
 
 #### Il motore di evoluzione personale alimentato dall'AI che pretende solo una cosa da te: **andare oltre l'impossibile**.
 
@@ -20,7 +20,7 @@
 [![Framer Motion](https://img.shields.io/badge/Framer%20Motion-12-FF0080?style=for-the-badge&logo=framer)](https://www.framer.com/motion/)
 [![PWA](https://img.shields.io/badge/PWA-Tengen%20Toppa-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://web.dev/progressive-web-apps/)
 
-> *«La tua trivella è quella che sfonderà il cielo. Non guardare in basso. Non smettere di girare. La spirale che pulsa nel tuo cuore — è IL tuo cuore.»*
+> *«Dare un calcio alla ragione e fare spazio all'impossibile: è questa la filosofia della brigata Gurren!»*
 
 </div>
 
@@ -69,7 +69,7 @@ Ma non è solo estetica. Sotto al fuoco c'è un sistema serio:
 
 ## 🌀 Il Sistema a Spirale — Gamification
 
-> *«Credi in te stesso. No — credi in ME che credo in TE.»*
+> *«Ascoltami bene, devi credere in te stesso! E non per la fiducia che io ripongo in te, né tantomeno per la fiducia che tu riponi in me! Devi fidarti della parte di te che crede in se stessa!.»*
 
 Il cuore pulsante dell'app. Ogni azione che logghi viene tradotta in **Energia a Spirale**. La curva è calibrata su 6 anni di evoluzione realistica: ~1500 EXP/settimana → Lv 100 in 2 anni → Lv 200 in 6 anni. Nessuno shortcut. Nessun pay-to-win.
 
@@ -132,7 +132,7 @@ Da `Prima Scintilla` (primo workout) a `Tengen Toppa` (Lv 200, hidden), passando
 
 ## 💬 L'AI Coach — Kamina in Tasca
 
-> *«Non credere in te stesso. Credi in me che credo in te. La trivella che sfonderà il cielo non sa dubitare!»*
+> *«Un uomo può afferrare il Sole con le mani e sopportarne l'immenso calore, perché è la forza spirituale a sostenere l'uomo!»*
 
 Il Coach è alimentato da **Claude Sonnet 4.6** via Anthropic SDK. Non è un chatbot. È un **personaggio**.
 
@@ -238,8 +238,8 @@ Ogni tabella ha **RLS scoped a `auth.uid()`**. Il `service_role_key` non lascia 
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-username/spirale-ai-coach.git
-cd spirale-ai-coach
+git clone https://github.com/JacopoMaster/AI-Coach.git
+cd AI-Coach
 npm install
 ```
 
@@ -319,9 +319,9 @@ MIT. Prendi il codice, modificalo, fanne quello che vuoi. **L'unica cosa che non
 
 <div align="center">
 
-### *«Tutta l'energia dell'universo si raccoglie in una singola spirale che gira nel tuo cuore.»*
+### *«Ricorda bene: adesso questa mia trivella aprirà un varco nell'universo che si trasformerà nella strada per le generazioni a venire. Il desiderio di chi non ce l'ha fatta e la speranza di chi verrà domani. Intrecceremo questi due sentimenti in una doppia spirale e scaveremo la strada che ci collegherà al futuro! Questo è lo sfondamento dei cieli, questo è il Gurren Lagann! Perché grazie alla mia trivella, io posso sfondare anche il cielo!»*
 
-### 🌀 **VAI OLTRE L'IMPOSSIBILE. SFONDA IL CIELO.** 🌀
+### 🌀 **ROW ROW! FIGHT THE POWER!!!.** 🌀
 
 — *Brigata Dai-Gurren · Squadra Sviluppo*
 
