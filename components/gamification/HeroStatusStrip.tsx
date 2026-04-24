@@ -9,8 +9,11 @@
 // for numerics, per-stat accent glow (crimson / cyan / gold).
 
 import Link from 'next/link'
-import { Umbrella } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { ChevronRight, Sparkles, Umbrella } from 'lucide-react'
 import { useSpiralState } from '@/hooks/use-spiral-state'
+import { subscribeSpiralEvents } from '@/lib/gamification/spiral-events'
 import { SpiralDrill } from './SpiralDrill'
 
 const STAT_CONFIG = [
@@ -45,8 +48,55 @@ function compactNum(n: number): string {
   return (n / 1_000_000).toFixed(1).replace('.0', '') + 'M'
 }
 
+const PERFECT_FLASH_MS = 4000
+
 export function HeroStatusStrip() {
   const { data, isLoading } = useSpiralState()
+  const [perfectFlash, setPerfectFlash] = useState<{ streak: number } | null>(null)
+  const prevStreakRef = useRef<number | null>(null)
+
+  // Detect Perfect Week streak bumps from stats refreshes — works whether the
+  // backend emits an explicit reward or just updates user_stats.
+  useEffect(() => {
+    const currentStreak = data?.user_stats?.perfect_week_streak ?? null
+    const prev = prevStreakRef.current
+    if (
+      currentStreak != null &&
+      prev != null &&
+      currentStreak > prev
+    ) {
+      setPerfectFlash({ streak: currentStreak })
+    }
+    prevStreakRef.current = currentStreak
+  }, [data?.user_stats?.perfect_week_streak])
+
+  // One-shot server marker: `/api/stats` sets `perfect_week` the first time
+  // the lazy tick confirms a perfect week. Key on `week_start` so the same
+  // event never re-fires the flash within a session.
+  const lastPwWeekRef = useRef<string | null>(null)
+  useEffect(() => {
+    const pw = data?.perfect_week
+    if (!pw) return
+    if (lastPwWeekRef.current === pw.week_start) return
+    lastPwWeekRef.current = pw.week_start
+    setPerfectFlash({ streak: pw.streak })
+  }, [data?.perfect_week])
+
+  // Also react to explicit perfect_week events fired from POST handlers.
+  useEffect(() => {
+    return subscribeSpiralEvents((event) => {
+      if (event.type === 'perfect_week') {
+        setPerfectFlash({ streak: event.data.streak })
+      }
+    })
+  }, [])
+
+  // Auto-dismiss the flash after a few seconds.
+  useEffect(() => {
+    if (!perfectFlash) return
+    const t = setTimeout(() => setPerfectFlash(null), PERFECT_FLASH_MS)
+    return () => clearTimeout(t)
+  }, [perfectFlash])
 
   if (isLoading || !data) {
     return <HeroStatusSkeleton />
@@ -58,7 +108,7 @@ export function HeroStatusStrip() {
   const streak = user_stats?.perfect_week_streak ?? 0
 
   return (
-    <Link href="/workouts" className="block">
+    <Link href="/status" className="block" aria-label="Apri lo stato della spirale">
       <div
         className="
           relative overflow-hidden rounded-lg
@@ -77,6 +127,25 @@ export function HeroStatusStrip() {
             backgroundSize: '20px 20px',
           }}
         />
+
+        {/* Perfect Week golden halo — pulses behind the whole card when a
+         *  new Perfect Week lands. Sits above the grid, below content. */}
+        <AnimatePresence>
+          {perfectFlash && (
+            <motion.div
+              key="pw-halo"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  'radial-gradient(circle at 50% 35%, rgba(250,204,21,0.35) 0%, rgba(250,204,21,0.12) 35%, transparent 70%)',
+              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 1, 0.8, 0.5] }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: PERFECT_FLASH_MS / 1000, times: [0, 0.15, 0.6, 1] }}
+            />
+          )}
+        </AnimatePresence>
 
         <div className="relative space-y-4">
           {/* Drill — level-driven hero visual */}
@@ -109,6 +178,10 @@ export function HeroStatusStrip() {
                   Ferie
                 </span>
               )}
+              <ChevronRight
+                className={on_vacation ? 'h-3.5 w-3.5 shrink-0 text-zinc-500' : 'ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500'}
+                aria-hidden
+              />
             </div>
 
             {/* EXP bar — progress within current level, not cumulative */}
@@ -138,7 +211,22 @@ export function HeroStatusStrip() {
 
             {/* Resonance + streak micro-row */}
             <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.15em] text-zinc-500">
-              <span className="flex items-center gap-1">
+              <motion.span
+                className="flex items-center gap-1"
+                animate={
+                  perfectFlash
+                    ? {
+                        color: ['rgb(113,113,122)', 'rgb(250,204,21)', 'rgb(113,113,122)'],
+                        textShadow: [
+                          '0 0 0 rgba(250,204,21,0)',
+                          '0 0 10px rgba(250,204,21,0.8)',
+                          '0 0 0 rgba(250,204,21,0)',
+                        ],
+                      }
+                    : undefined
+                }
+                transition={{ duration: 1.6, repeat: 1 }}
+              >
                 <span>Res</span>
                 <span
                   className="text-zinc-200 tabular-nums"
@@ -146,7 +234,7 @@ export function HeroStatusStrip() {
                 >
                   ×{resonance.toFixed(2)}
                 </span>
-              </span>
+              </motion.span>
               {streak > 0 && (
                 <span className="flex items-center gap-1">
                   <span>Streak</span>
@@ -158,6 +246,25 @@ export function HeroStatusStrip() {
                   </span>
                 </span>
               )}
+
+              {/* Perfect Week badge — AnimatePresence-gated, epic gold toast. */}
+              <AnimatePresence>
+                {perfectFlash && (
+                  <motion.span
+                    key="pw-badge"
+                    className="ml-auto flex items-center gap-1 rounded-full border border-agilita/70 bg-agilita/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-agilita"
+                    style={{ boxShadow: '0 0 14px hsl(var(--accent-agilita) / 0.5)' }}
+                    initial={{ opacity: 0, scale: 0.6, y: 6 }}
+                    animate={{ opacity: 1, scale: [0.6, 1.15, 1], y: 0 }}
+                    exit={{ opacity: 0, scale: 0.8, y: -4 }}
+                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Perfect Week
+                    <span className="tabular-nums">{perfectFlash.streak}w</span>
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>

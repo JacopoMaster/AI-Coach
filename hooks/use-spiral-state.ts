@@ -25,6 +25,13 @@ export interface SpiralState {
   exp_for_next_level: number
   on_vacation: boolean
   active_recent_24h: boolean
+  /** One-shot marker emitted by /api/stats when the lazy Perfect-Week tick
+   *  just confirmed a perfect week. Cleared on the next fetch. */
+  perfect_week: {
+    week_start: string
+    streak: number
+    resonance_mult: number
+  } | null
 }
 
 const DEDUP_MS = 10_000

@@ -18,7 +18,13 @@ import {
   tierFromLevel,
 } from './exp-curve'
 import { checkAchievements } from './check-achievements'
+import { tickResonanceIfNeeded } from './check-perfect-week'
 import type { ExpSource, Reward, SpiralStage, StatTag, UserStats } from './types'
+
+/** Flat bonus awarded on top of the multiplier bump when a Perfect Week is
+ *  confirmed — small, symbolic, also makes `source='perfect_week'` land in
+ *  exp_history so the `perfect_spiral` achievement trigger can fire. */
+const PERFECT_WEEK_BONUS_EXP = 100
 
 export interface AwardExpInput {
   userId: string
@@ -29,6 +35,9 @@ export interface AwardExpInput {
   rationale?: string
   /** If true, skip multiplier (used for flat-value awards like achievements). */
   skipMultiplier?: boolean
+  /** If true, skip the lazy Perfect-Week tick (used for re-entrant awardExp
+   *  calls inside the same request, e.g. the recursive Perfect-Week bonus). */
+  skipResonanceTick?: boolean
   /** Context flags forwarded to checkAchievements. */
   justGigaDrill?: boolean
   justMesoClear?: boolean
@@ -55,11 +64,32 @@ export async function awardExp(
     statTagged = null,
     rationale = null,
     skipMultiplier = false,
+    skipResonanceTick = false,
     justGigaDrill = false,
     justMesoClear = false,
   } = input
 
   if (baseExp <= 0) return ZERO_REWARD
+
+  // 0. Lazy Perfect-Week tick — evaluates any fully-elapsed ISO weeks since
+  //    the last tick. Runs BEFORE we load current stats so a fresh multiplier
+  //    bump (or decay) already applies to this award. Any failure is
+  //    non-fatal: the parent POST must never break because of gamification.
+  let tickPerfectWeek: Reward['perfect_week'] | undefined
+  if (!skipResonanceTick) {
+    try {
+      const tick = await tickResonanceIfNeeded(supabase, userId)
+      if (tick.ticked && tick.lastResult && tick.lastResult.isPerfect) {
+        tickPerfectWeek = {
+          week_start: tick.lastResult.weekStart,
+          streak: tick.lastResult.streakAfter,
+          resonance_mult: tick.lastResult.newMultiplier,
+        }
+      }
+    } catch (err) {
+      console.error('[gamification] resonance tick failed:', err)
+    }
+  }
 
   // 1. Load current stats (also serves as existence check).
   const { data: stats } = await supabase
@@ -187,6 +217,7 @@ export async function awardExp(
   // because the checker short-circuits on already-unlocked codes, and
   // user_achievements PK prevents double-unlocks at the DB layer).
   let cumulativeBonus = 0
+  const composedUnlocks: typeof unlocked = [...unlocked]
   for (const ach of unlocked) {
     if (ach.exp_reward > 0) {
       const sub = await awardExp(supabase, {
@@ -196,8 +227,39 @@ export async function awardExp(
         baseExp: ach.exp_reward,
         rationale: `Achievement: ${ach.name}`,
         skipMultiplier: true,
+        skipResonanceTick: true,
       })
       cumulativeBonus += sub.delta
+    }
+  }
+
+  // 5.5 Perfect Week follow-up grant — only at top-level calls (guard against
+  //     loops: don't re-trigger on the recursive 'perfect_week' or 'achievement'
+  //     grants). The flat PERFECT_WEEK_BONUS_EXP both celebrates the streak and
+  //     makes `source='perfect_week'` land in exp_history so the perfect_spiral
+  //     achievement trigger can fire inside the recursive call.
+  if (
+    tickPerfectWeek &&
+    source !== 'perfect_week' &&
+    source !== 'achievement'
+  ) {
+    try {
+      const sub = await awardExp(supabase, {
+        userId,
+        source: 'perfect_week',
+        sourceId: crypto.randomUUID(),
+        baseExp: PERFECT_WEEK_BONUS_EXP,
+        statTagged: 'all',
+        rationale: `Perfect Week — streak ${tickPerfectWeek.streak}w`,
+        skipMultiplier: true,
+        skipResonanceTick: true,
+      })
+      cumulativeBonus += sub.delta
+      if (sub.unlocked_achievements) {
+        composedUnlocks.push(...sub.unlocked_achievements)
+      }
+    } catch (err) {
+      console.error('[gamification] perfect week bonus failed:', err)
     }
   }
 
@@ -215,7 +277,8 @@ export async function awardExp(
     tier_up: newTier > oldTier ? { from: oldTier, to: newTier } : undefined,
     stage_up: newStage !== oldStage ? { from: oldStage, to: newStage } : undefined,
     pierced: pierced || undefined,
-    unlocked_achievements: unlocked.length > 0 ? unlocked : undefined,
+    perfect_week: tickPerfectWeek,
+    unlocked_achievements: composedUnlocks.length > 0 ? composedUnlocks : undefined,
     rationale: rationale ?? undefined,
   }
 }

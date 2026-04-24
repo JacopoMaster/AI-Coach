@@ -120,6 +120,14 @@ export interface Reward {
     improvement_pct: number
     bonus_exp: number
   }
+  /** Populated when the lazy Perfect-Week tick just credited a perfect week.
+   *  Missed-week decays are not surfaced here — they update user_stats silently
+   *  and the UI picks them up on the next refresh. */
+  perfect_week?: {
+    week_start: string
+    streak: number
+    resonance_mult: number
+  }
   unlocked_achievements?: Achievement[]
   rationale?: string
 }

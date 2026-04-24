@@ -11,6 +11,8 @@ import { today } from '@/lib/utils'
 import { enqueue, SYNC_TAG } from '@/lib/offline/sync-queue'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
+import { fireGigaDrill, firePerfectWeek } from '@/lib/gamification/spiral-events'
+import type { Reward } from '@/lib/gamification/types'
 
 type ExerciseLog = {
   plan_exercise_id: string
@@ -268,6 +270,22 @@ export default function WorkoutLogPage() {
       })
 
       if (res.ok) {
+        // Parse reward payload before navigation so any cutscene has its
+        // trigger data queued to the (layout-mounted) overlay host.
+        try {
+          const json = (await res.json()) as { reward?: Reward | null }
+          const reward = json?.reward
+          if (reward?.giga_drill) {
+            fireGigaDrill(reward.giga_drill)
+          }
+          // Perfect Week marker — the server currently publishes this via
+          // perfect_week_streak bumps in user_stats; when the backend adds an
+          // explicit reward.perfect_week field, surface the toast immediately.
+          const pw = (reward as unknown as { perfect_week?: { streak: number; resonance_mult: number } } | null)?.perfect_week
+          if (pw) firePerfectWeek(pw)
+        } catch {
+          // Response wasn't JSON or was empty — saving still succeeded.
+        }
         setSaving(false)
         finishSuccess()
         return

@@ -154,3 +154,69 @@ export async function shouldTickResonance(
   const hours = (now.getTime() - last.getTime()) / (1000 * 60 * 60)
   return hours >= 24
 }
+
+export interface ResonanceTickResult {
+  /** True when at least one week boundary was crossed and evaluated. */
+  ticked: boolean
+  /** How many ISO weeks were evaluated (0 in the common no-op path). */
+  weeksEvaluated: number
+  /** The most-recent evaluated week's outcome; null on first-ever tick. */
+  lastResult: PerfectWeekResult | null
+}
+
+/** Lazy resonance tick — run at every EXP-awarding POST and on /api/stats.
+ *
+ *  Compares `resonance_last_tick`'s ISO week with the current ISO week and,
+ *  if any full weeks have elapsed in between, evaluates each missed week
+ *  via `evaluateLastWeek(commit=true)` in chronological order. The last
+ *  weekly commit also stamps `resonance_last_tick = now`, so concurrent
+ *  ticks in the same ISO week short-circuit.
+ *
+ *  First-ever tick (resonance_last_tick IS NULL) stamps `now` without any
+ *  evaluation — we never backfill history (plan §0 decision #4). */
+export async function tickResonanceIfNeeded(
+  supabase: SupabaseClient,
+  userId: string,
+  now: Date = new Date()
+): Promise<ResonanceTickResult> {
+  const { data: stats } = await supabase
+    .from('user_stats')
+    .select('resonance_last_tick')
+    .eq('user_id', userId)
+    .single()
+
+  const last = stats?.resonance_last_tick
+    ? new Date(stats.resonance_last_tick)
+    : null
+
+  // First-ever encounter: seed the tick timestamp. No backfill.
+  if (!last) {
+    await supabase
+      .from('user_stats')
+      .update({ resonance_last_tick: now.toISOString() })
+      .eq('user_id', userId)
+    return { ticked: false, weeksEvaluated: 0, lastResult: null }
+  }
+
+  const lastWeekStart = isoWeekStart(last)
+  const currentWeekStart = isoWeekStart(now)
+  const MS_PER_WEEK = 7 * MS_PER_DAY
+  const weeksMissed = Math.floor(
+    (currentWeekStart.getTime() - lastWeekStart.getTime()) / MS_PER_WEEK
+  )
+
+  if (weeksMissed < 1) {
+    return { ticked: false, weeksEvaluated: 0, lastResult: null }
+  }
+
+  // Walk forward through each missed week, evaluating in order. Each call
+  // reads from and commits to user_stats, so multiplier/streak transitions
+  // cascade naturally (a perfect W+1 evaluated after a missed W still works
+  // on the decayed baseline from W).
+  let lastResult: PerfectWeekResult | null = null
+  for (let i = 0; i < weeksMissed; i++) {
+    const asOf = new Date(lastWeekStart.getTime() + (i + 1) * MS_PER_WEEK)
+    lastResult = await evaluateLastWeek(supabase, userId, asOf, { commit: true })
+  }
+  return { ticked: true, weeksEvaluated: weeksMissed, lastResult }
+}

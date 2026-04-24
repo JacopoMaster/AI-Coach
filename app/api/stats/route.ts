@@ -7,6 +7,7 @@ import {
   tierFromLevel,
 } from '@/lib/gamification/exp-curve'
 import { isOnVacation } from '@/lib/gamification/vacation'
+import { tickResonanceIfNeeded } from '@/lib/gamification/check-perfect-week'
 import type { ExpHistoryEntry, UserStats } from '@/lib/gamification/types'
 
 export async function GET() {
@@ -16,6 +17,27 @@ export async function GET() {
 
   const todayISO = new Date().toISOString().split('T')[0]
   const since24hISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  // Lazy Perfect-Week evaluation on app open. Non-fatal: a stale read is
+  // always preferable to a failed dashboard load. The result is surfaced as a
+  // one-shot flag so the client HUD can flash without a separate POST.
+  let lazyPerfectWeek: {
+    week_start: string
+    streak: number
+    resonance_mult: number
+  } | null = null
+  try {
+    const tick = await tickResonanceIfNeeded(supabase, user.id)
+    if (tick.ticked && tick.lastResult && tick.lastResult.isPerfect) {
+      lazyPerfectWeek = {
+        week_start: tick.lastResult.weekStart,
+        streak: tick.lastResult.streakAfter,
+        resonance_mult: tick.lastResult.newMultiplier,
+      }
+    }
+  } catch (err) {
+    console.error('[gamification] /api/stats tick failed:', err)
+  }
 
   const [statsRes, recentRes, statTotalsRes, recentActivityRes, vacationFlag] = await Promise.all([
     supabase.from('user_stats').select('*').eq('user_id', user.id).single<UserStats>(),
@@ -80,5 +102,6 @@ export async function GET() {
     exp_for_next_level: expForNextLevel(stats.level),
     on_vacation: vacationFlag,
     active_recent_24h: (recentActivityRes.count ?? 0) > 0,
+    perfect_week: lazyPerfectWeek,
   })
 }
