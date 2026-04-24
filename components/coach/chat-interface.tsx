@@ -465,7 +465,10 @@ export function ChatInterface() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    // `dvh` tracks the visible viewport (mobile browser chrome aware);
+    // 5rem matches the `pb-20` reserved by app layout for the BottomNav.
+    // Flex column keeps header at top, messages filling, input pinned below.
+    <div className="flex flex-col h-[calc(100dvh-5rem)]">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between p-4 border-b">
@@ -609,7 +612,10 @@ export function ChatInterface() {
       </div>
 
       {/* ── Input ───────────────────────────────────────────────────────────── */}
-      <div className="p-4 border-t">
+      {/* `mt-auto` is a belt-and-suspenders pin: the `flex-1` above already
+       *  pushes this to the bottom, but if the messages area ever shrinks
+       *  (short welcome + no flex-1 child), this keeps the input anchored. */}
+      <div className="mt-auto p-4 border-t">
         <div className="flex gap-2 items-end">
           <Textarea
             ref={textareaRef}

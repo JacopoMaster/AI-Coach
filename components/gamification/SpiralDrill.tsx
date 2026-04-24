@@ -558,23 +558,26 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
         }
         .spiral-shine { animation: shine-pulse 1.8s ease-in-out infinite; }
         .aura-node { animation: aura-pulse 2.2s ease-in-out infinite; transform-origin: center; }
+        /* Pivot moved from center-bottom to center so the 30deg tilt rotates
+         * around the SVG geometric middle — the bottom pivot drifted mass
+         * to the upper-right and broke justify-center in the parent. */
         .drill-tilt {
           transform: rotate(30deg);
-          transform-origin: center bottom;
+          transform-origin: center;
         }
         .drill-tilt-shake {
           animation: chromatic-shake 0.08s steps(2) infinite;
-          transform-origin: center bottom;
+          transform-origin: center;
         }
         .drill-tilt-mega {
           animation: mega-tilt-shake 0.2s ease-in-out infinite;
-          transform-origin: center bottom;
+          transform-origin: center;
         }
         ${strandStyle}
       `}</style>
 
       <div
-        className="h-[30rem] w-full flex items-end justify-center relative rounded-xl overflow-hidden"
+        className="h-[30rem] w-full flex items-center justify-center relative rounded-xl overflow-hidden"
         style={{
           background: containerBg,
           backgroundSize: tier.megaForm ? "200% 200%, 200% 200%, 200% 200%, 100% 100%" : "auto",
