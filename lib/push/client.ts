@@ -42,10 +42,18 @@ export function checkPushSupport(): PushSupport {
   return { supported: true }
 }
 
+/** Resolve the VAPID public key.
+ *  Primary source: NEXT_PUBLIC_VAPID_PUBLIC_KEY (inlined at build time).
+ *  Fallback: GET /api/notifications/subscribe — used only if the env var
+ *  wasn't injected (e.g. misconfigured deploy). */
 async function getVapidPublicKey(): Promise<string> {
+  const fromEnv = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  if (fromEnv && fromEnv.length > 0) return fromEnv
+
   const res = await fetch('/api/notifications/subscribe', { method: 'GET' })
   if (!res.ok) throw new Error('VAPID key non disponibile')
   const { publicKey } = (await res.json()) as { publicKey: string }
+  if (!publicKey) throw new Error('VAPID key non configurata')
   return publicKey
 }
 
@@ -74,21 +82,15 @@ export async function enablePushNotifications(): Promise<PushSubscription> {
   const support = checkPushSupport()
   if (!support.supported) throw new Error(support.reason)
 
-  const registration =
-    (await navigator.serviceWorker.getRegistration()) ||
-    (await navigator.serviceWorker.register('/sw.js'))
-
-  // Wait until the SW is active — subscribing against a still-installing
-  // worker occasionally fails silently on Safari.
-  if (!registration.active) {
-    await new Promise<void>((resolve) => {
-      const worker = registration.installing || registration.waiting
-      if (!worker) return resolve()
-      worker.addEventListener('statechange', () => {
-        if (worker.state === 'activated') resolve()
-      })
-    })
+  // Register the SW if it isn't already. `sw.js` is the next-pwa bundle and
+  // it `importScripts('/push-handler.js')` to wire the push listener.
+  if (!(await navigator.serviceWorker.getRegistration())) {
+    await navigator.serviceWorker.register('/sw.js')
   }
+
+  // `navigator.serviceWorker.ready` resolves once the controlling SW is
+  // active — the stable idiom, no manual statechange juggling.
+  const registration = await navigator.serviceWorker.ready
 
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') {
