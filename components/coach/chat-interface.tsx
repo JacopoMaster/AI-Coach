@@ -532,11 +532,19 @@ export function ChatInterface() {
       {/* ── Messages ────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {displayMessages.length === 0 && !streamingText && (
-          <div className="text-center py-12 space-y-3">
-            <Bot className="h-12 w-12 mx-auto text-muted-foreground" />
-            <p className="text-muted-foreground font-medium">Ciao! Sono il tuo AI Coach.</p>
+          // Empty-state welcome — uses the full scroll column height so the
+          // hero sits comfortably in the upper third instead of crushed against
+          // the header border.
+          <div className="flex min-h-full flex-col items-center justify-start pt-24 pb-12 text-center space-y-5">
+            <div className="h-16 w-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Bot className="h-8 w-8 text-primary" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-base font-semibold text-foreground">Ciao! Sono il tuo AI Coach.</p>
+              <p className="text-sm text-muted-foreground">Come posso aiutarti oggi?</p>
+            </div>
             <div className="space-y-2 text-sm text-muted-foreground">
-              <p>Puoi chiedermi di:</p>
+              <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground/70">Puoi chiedermi di</p>
               <div className="flex flex-col gap-1.5 items-center">
                 {['Analizzare i miei progressi', 'Modificare la scheda di allenamento',
                   'Aggiustare i target macro', 'Consigli su recupero e nutrizione'].map((s) => (

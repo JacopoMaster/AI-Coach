@@ -114,7 +114,6 @@ export function HeroStatusStrip() {
           relative overflow-hidden rounded-lg
           border border-white/10
           bg-gradient-to-br from-[#0a0a0f] via-[#111118] to-[#0a0a0f]
-          p-4
           shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_10px_30px_-12px_rgba(0,0,0,0.8)]
         "
       >
@@ -147,51 +146,54 @@ export function HeroStatusStrip() {
           )}
         </AnimatePresence>
 
-        <div className="relative space-y-4">
-          {/* Drill — level-driven hero visual */}
-          <div className="-mx-4 -mt-4">
+        {/* Top-right detail affordance — replaces the old inline chevron so
+         *  the title row stays clean and the whole card reads as a hero. */}
+        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full border border-white/10 bg-black/50 px-2 py-0.5 text-[9px] uppercase tracking-[0.2em] text-zinc-400 backdrop-blur-sm">
+          Dettagli
+          <ChevronRight className="h-3 w-3" aria-hidden />
+        </div>
+
+        {/* Top-left vacation badge — visible only on opt-in. */}
+        {on_vacation && (
+          <span
+            className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400 backdrop-blur-sm"
+            title="Modalità Episodio in Spiaggia attiva"
+          >
+            <Umbrella className="h-3 w-3" />
+            Ferie
+          </span>
+        )}
+
+        {/* Vertical stack — drill hero up top, stats stacked + centered below. */}
+        <div className="relative flex flex-col items-center">
+          {/* Drill — full-width, already internally centered by SpiralDrill. */}
+          <div className="w-full">
             <SpiralDrill level={level} />
           </div>
 
-          {/* Info block */}
-          <div className="space-y-2">
-            {/* Title row */}
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                Lv
-              </span>
-              <span
-                className="text-2xl leading-none font-semibold text-white tabular-nums"
-                style={{ fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, monospace)' }}
-              >
-                {level}
-              </span>
-              <span className="truncate text-sm font-medium text-zinc-300">
+          {/* Centered info column. Padding holds the card breathable. */}
+          <div className="flex w-full flex-col items-center gap-5 px-5 pb-5 pt-2">
+
+            {/* Level + Title — stacked, centered. */}
+            <div className="flex flex-col items-center gap-1">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                  Lv
+                </span>
+                <span className="font-mono text-4xl leading-none font-semibold tabular-nums text-white">
+                  {level}
+                </span>
+              </div>
+              <span className="text-center text-sm font-medium tracking-tight text-zinc-300">
                 {title}
               </span>
-              {on_vacation && (
-                <span
-                  className="ml-auto flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400"
-                  title="Modalità Episodio in Spiaggia attiva"
-                >
-                  <Umbrella className="h-3 w-3" />
-                  Ferie
-                </span>
-              )}
-              <ChevronRight
-                className={on_vacation ? 'h-3.5 w-3.5 shrink-0 text-zinc-500' : 'ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500'}
-                aria-hidden
-              />
             </div>
 
-            {/* EXP bar — progress within current level, not cumulative */}
-            <div className="space-y-1">
+            {/* EXP bar — progress within current level. */}
+            <div className="w-full space-y-1.5">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.15em] text-zinc-500">
                 <span>Spiral Energy</span>
-                <span
-                  className="tabular-nums text-zinc-400"
-                  style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)' }}
-                >
+                <span className="font-mono tabular-nums text-zinc-400">
                   {compactNum(Math.round(progress * exp_for_next_level))} /{' '}
                   {compactNum(exp_for_next_level)}
                 </span>
@@ -209,8 +211,8 @@ export function HeroStatusStrip() {
               </div>
             </div>
 
-            {/* Resonance + streak micro-row */}
-            <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.15em] text-zinc-500">
+            {/* Resonance + streak — centered row. */}
+            <div className="flex items-center justify-center gap-5 text-[10px] uppercase tracking-[0.15em] text-zinc-500">
               <motion.span
                 className="flex items-center gap-1"
                 animate={
@@ -228,87 +230,80 @@ export function HeroStatusStrip() {
                 transition={{ duration: 1.6, repeat: 1 }}
               >
                 <span>Res</span>
-                <span
-                  className="text-zinc-200 tabular-nums"
-                  style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)' }}
-                >
+                <span className="font-mono tabular-nums text-zinc-200">
                   ×{resonance.toFixed(2)}
                 </span>
               </motion.span>
               {streak > 0 && (
                 <span className="flex items-center gap-1">
                   <span>Streak</span>
-                  <span
-                    className="text-zinc-200 tabular-nums"
-                    style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)' }}
-                  >
+                  <span className="font-mono tabular-nums text-zinc-200">
                     {streak}w
                   </span>
                 </span>
               )}
+            </div>
 
-              {/* Perfect Week badge — AnimatePresence-gated, epic gold toast. */}
-              <AnimatePresence>
-                {perfectFlash && (
-                  <motion.span
-                    key="pw-badge"
-                    className="ml-auto flex items-center gap-1 rounded-full border border-agilita/70 bg-agilita/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-agilita"
-                    style={{ boxShadow: '0 0 14px hsl(var(--accent-agilita) / 0.5)' }}
-                    initial={{ opacity: 0, scale: 0.6, y: 6 }}
-                    animate={{ opacity: 1, scale: [0.6, 1.15, 1], y: 0 }}
-                    exit={{ opacity: 0, scale: 0.8, y: -4 }}
-                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+            {/* Perfect Week badge — lives on its own centered line so it
+             *  never competes with the Res/Streak metrics for space. */}
+            <AnimatePresence>
+              {perfectFlash && (
+                <motion.span
+                  key="pw-badge"
+                  className="flex items-center gap-1 rounded-full border border-agilita/70 bg-agilita/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-agilita"
+                  style={{ boxShadow: '0 0 14px hsl(var(--accent-agilita) / 0.5)' }}
+                  initial={{ opacity: 0, scale: 0.6, y: 6 }}
+                  animate={{ opacity: 1, scale: [0.6, 1.15, 1], y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: -4 }}
+                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Perfect Week
+                  <span className="tabular-nums">{perfectFlash.streak}w</span>
+                </motion.span>
+              )}
+            </AnimatePresence>
+
+            {/* Stat grid — 3 cells, centered, consistent widths. */}
+            <div className="grid w-full grid-cols-3 gap-2">
+              {STAT_CONFIG.map(({ key, label, fullLabel, accent, accentBg }) => {
+                const value = stat_totals[key]
+                return (
+                  <div
+                    key={key}
+                    className="
+                      group relative overflow-hidden rounded-md
+                      border border-white/5
+                      bg-black/40 px-3 py-2
+                    "
+                    style={{
+                      boxShadow: `inset 0 0 12px ${accentBg}`,
+                    }}
                   >
-                    <Sparkles className="h-3 w-3" />
-                    Perfect Week
-                    <span className="tabular-nums">{perfectFlash.streak}w</span>
-                  </motion.span>
-                )}
-              </AnimatePresence>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span
+                        className="text-[9px] uppercase tracking-[0.2em]"
+                        style={{ color: accent, opacity: 0.85 }}
+                        aria-label={fullLabel}
+                      >
+                        {label}
+                      </span>
+                      <SpiralDot color={accent} active={value > 0} />
+                    </div>
+                    <div
+                      className="font-mono text-lg leading-none font-semibold tabular-nums"
+                      style={{
+                        color: accent,
+                        textShadow: `0 0 10px ${accentBg}`,
+                      }}
+                    >
+                      {compactNum(value)}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
-        </div>
-
-        {/* Stat row */}
-        <div className="relative mt-4 grid grid-cols-3 gap-2">
-          {STAT_CONFIG.map(({ key, label, fullLabel, accent, accentBg }) => {
-            const value = stat_totals[key]
-            return (
-              <div
-                key={key}
-                className="
-                  group relative overflow-hidden rounded-md
-                  border border-white/5
-                  bg-black/40 px-3 py-2
-                "
-                style={{
-                  boxShadow: `inset 0 0 12px ${accentBg}`,
-                }}
-              >
-                {/* Spiral indicator dot */}
-                <div className="mb-1 flex items-center justify-between">
-                  <span
-                    className="text-[9px] uppercase tracking-[0.2em]"
-                    style={{ color: accent, opacity: 0.85 }}
-                    aria-label={fullLabel}
-                  >
-                    {label}
-                  </span>
-                  <SpiralDot color={accent} active={value > 0} />
-                </div>
-                <div
-                  className="text-lg leading-none font-semibold tabular-nums"
-                  style={{
-                    fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, monospace)',
-                    color: accent,
-                    textShadow: `0 0 10px ${accentBg}`,
-                  }}
-                >
-                  {compactNum(value)}
-                </div>
-              </div>
-            )
-          })}
         </div>
       </div>
     </Link>
