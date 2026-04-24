@@ -19,6 +19,11 @@ const TEST_PAYLOAD = {
   body: 'Energia a Spirale connessa con successo!',
   url: '/status',
   tag: 'spiral-test',
+  // Full-color logo shown at the top-left of the notification card.
+  icon: '/icons/icon-192.png',
+  // Android status-bar mark. Must be monochrome white-on-transparent; the
+  // OS tints it itself. Ignored on iOS/desktop where the icon is reused.
+  badge: '/icons/badge-72.png',
 }
 
 function configureVapid(): { ok: true } | { ok: false; error: string } {

@@ -16,8 +16,10 @@ self.addEventListener('push', function (event) {
   const fallback = {
     title: 'Spirale',
     body: 'Hai una nuova notifica dal tuo Coach.',
-    icon: '/icons/icon-192.svg',
-    badge: '/icons/icon-192.svg',
+    // PNG is the most portable choice across Android, iOS, and desktop push
+    // services — some downsize or refuse SVG in notifications.
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-72.png',
     url: '/',
   }
 

@@ -20,6 +20,10 @@ export interface PushPayload {
   url?: string
   tag?: string
   anomaly_type?: string
+  // Full-color logo shown as the notification's main image.
+  icon?: string
+  // Monochrome Android status-bar glyph (72px, white-on-transparent).
+  badge?: string
 }
 
 export interface DispatchResult {

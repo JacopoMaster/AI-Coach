@@ -119,6 +119,8 @@ async function processUser(
     url: dayType === 'training' ? '/workouts' : '/',
     tag: 'coach-morning_motivation',
     anomaly_type: 'morning_motivation',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-72.png',
   })
 
   if (result.expiredIds.length > 0) {
