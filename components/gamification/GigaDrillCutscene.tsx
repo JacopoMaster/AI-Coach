@@ -11,10 +11,21 @@
 //
 // 5-phase orchestration (~4.5s):
 //   • PHASE 1  (0.0 – 0.6s)  freeze: backdrop, white flash, grid, radial halo
-//   • PHASE 2  (0.6 – 1.5s)  drill SLAMS into frame from off-axis
-//   • PHASE 3  (1.0 – 1.5s)  screen shake on impact, title pops
-//   • PHASE 4  (1.5 – 3.5s)  drill keeps spinning, stats reveal underneath
-//   • PHASE 5  (3.5 – 4.5s)  drill drifts back, overlay fades via AnimatePresence
+//   • PHASE 2  (0.4 – 1.5s)  drill SLAMS into frame from off-axis
+//   • PHASE 3  (0.85 – 1.4s) screen shake on impact, title pops
+//   • PHASE 4  (1.65 – 3.5s) drill barber-pole grooves keep "drilling", stats reveal
+//   • PHASE 5  (3.5 – 4.5s)  drill drifts, overlay fades via AnimatePresence
+//
+// Mobile-perf notes (post-feedback):
+//   • No 2D rotate on the drill SVG anymore. The "spinning" effect is faked
+//     by translating the groove pattern along the cone's longitudinal axis
+//     inside a clip-path — pure SVG, no whole-element transform.
+//   • Title shadow uses a single chained `filter: drop-shadow(...)` instead
+//     of stacked `text-shadow` + `-webkit-text-stroke`, which on Android
+//     Chrome was rendering as visible bounding-box artifacts.
+//   • `will-change: transform, opacity` on heavy motion containers so the
+//     compositor promotes them to GPU layers.
+//   • Backdrop blur softened from `md` to `sm`.
 
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
@@ -45,8 +56,6 @@ export function GigaDrillCutscene({
   )
   const activePayload = externalPayload ?? internalPayload
 
-  // Bus listener — only active when the component is mounted without an
-  // external payload (layout-mounted host instance).
   useEffect(() => {
     if (externalPayload !== undefined) return
     return subscribeSpiralEvents((event) => {
@@ -55,7 +64,6 @@ export function GigaDrillCutscene({
     })
   }, [externalPayload])
 
-  // Auto-dismiss + onComplete fire.
   useEffect(() => {
     if (!activePayload) return
     const t = setTimeout(() => {
@@ -72,30 +80,28 @@ export function GigaDrillCutscene({
   )
 }
 
+const willChangeTransform = { willChange: 'transform, opacity' as const }
+
 function Overlay({ payload }: { payload: GigaDrillPayload }) {
-  const improvementPct = Math.round(payload.improvement_pct * 1000) / 10 // e.g. 12.4
+  const improvementPct = Math.round(payload.improvement_pct * 1000) / 10
 
   return (
     <motion.div
       key="giga-drill-cutscene"
-      // z-[200] beats every other overlay in the app (BottomNav is z-50,
-      // GigaDrillCutscene host was z-100; the dev preview lives one above).
       className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
+      style={willChangeTransform}
       aria-live="assertive"
       role="alert"
     >
       {/* ── PHASE 1 — backdrop + freeze flash ──────────────────────────── */}
-      <motion.div
-        className="absolute inset-0 bg-black/95 backdrop-blur-md"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
-      />
-      {/* Cyber grid */}
+      {/* `backdrop-blur-sm` (4px) instead of `md` (12px) — much cheaper on
+       *  mobile GPUs and 95%-opaque black already does most of the work. */}
+      <div className="absolute inset-0 bg-black/95 backdrop-blur-sm" />
+
       <motion.div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -107,33 +113,32 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
         animate={{ opacity: [0, 1, 0.55] }}
         transition={{ duration: 0.7, times: [0, 0.3, 1] }}
       />
-      {/* White flash spike at t≈0.1 */}
       <motion.div
         className="absolute inset-0 bg-white"
         initial={{ opacity: 0 }}
         animate={{ opacity: [0, 0.85, 0] }}
         transition={{ duration: 0.5, times: [0, 0.2, 1], ease: 'easeOut' }}
       />
-      {/* Radial halo — gold→crimson */}
       <motion.div
         className="pointer-events-none absolute inset-0"
         style={{
           background:
             'radial-gradient(circle at center, rgba(250,204,21,0.45) 0%, rgba(34,197,94,0.18) 25%, rgba(239,68,68,0.18) 45%, transparent 65%)',
+          ...willChangeTransform,
         }}
         initial={{ opacity: 0, scale: 0.4 }}
         animate={{ opacity: [0, 1, 0.85], scale: [0.4, 1, 1] }}
         transition={{ duration: 1.4, delay: 0.3, ease: 'easeOut' }}
       />
 
-      {/* ── SCREEN SHAKE wrapper — wraps drill + title + reveal so they all
-       *  shake together on impact (t≈0.85s). Subsequent phases sit still. */}
+      {/* ── SCREEN SHAKE wrapper — drops the rotate axis (was adding visual
+       *  noise on small screens) and keeps only translational impact. */}
       <motion.div
         className="relative z-10 flex h-full w-full items-center justify-center"
+        style={willChangeTransform}
         animate={{
           x: [0, -10, 9, -8, 7, -5, 4, -2, 1, 0, 0, 0],
           y: [0, 5, -5, 4, -4, 3, -2, 2, -1, 0, 0, 0],
-          rotate: [0, -0.6, 0.6, -0.4, 0.4, -0.2, 0.2, 0, 0, 0, 0, 0],
         }}
         transition={{
           duration: 0.55,
@@ -142,16 +147,20 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
           ease: 'easeOut',
         }}
       >
-        {/* ── PHASE 2 + 4 — DRILL: slam-in then continuous insane spin ── */}
-        {/* Outer wrapper handles the slam transform + final tilt. */}
+        {/* ── PHASE 2 — drill slam-in. NO 2D rotation on the SVG itself
+         *  (was making it look like a steering wheel). Tilt only. The
+         *  illusion of rotation lives inside DrillSVG via translated
+         *  grooves under a clip-path. */}
         <motion.div
           className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          style={willChangeTransform}
           initial={{ opacity: 0, scale: 0.15, x: 320, y: -260, rotate: 135 }}
           animate={{
             opacity: [0, 1, 1, 1, 0.9],
             scale: [0.15, 1.7, 1.35, 1.35, 1.4],
             x: [320, 0, 0, 0, 60],
             y: [-260, 0, 0, 0, -20],
+            // Land at -25° and STAY there — no continuous spin.
             rotate: [135, -25, -25, -25, -25],
           }}
           transition={{
@@ -161,28 +170,22 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
             ease: [0.16, 1, 0.3, 1],
           }}
         >
-          {/* Inner wrapper spins continuously — gives the drill its
-           *  "rotation around its own axis" character. */}
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{
-              duration: 0.45,
-              repeat: Infinity,
-              ease: 'linear',
-            }}
-          >
-            <DrillSVG />
-          </motion.div>
+          <DrillSVG />
         </motion.div>
 
         {/* ── PHASE 3 — title slam ──────────────────────────────────────── */}
         <div className="relative z-10 flex flex-col items-center gap-6 px-6 text-center">
           <motion.h1
             className="text-5xl font-black uppercase leading-none tracking-[0.15em] text-white sm:text-7xl md:text-8xl"
+            // Single chained `drop-shadow` filter — Android Chrome handles
+            // these cleanly. The previous `text-shadow` × 4 + `WebkitText-
+            // Stroke` combo was painting visible bounding boxes on some
+            // devices because the layered shadows over-saturated the alpha
+            // channel and the stroke clipped per-glyph.
             style={{
-              textShadow:
-                '0 0 30px rgba(250,204,21,0.95), 0 0 60px rgba(34,197,94,0.7), 0 0 90px rgba(239,68,68,0.6), 0 6px 0 rgba(0,0,0,0.95)',
-              WebkitTextStroke: '1.5px rgba(250,204,21,0.55)',
+              filter:
+                'drop-shadow(0 0 18px rgba(250,204,21,0.95)) drop-shadow(0 0 36px rgba(34,197,94,0.6))',
+              ...willChangeTransform,
             }}
             initial={{ scale: 0.2, letterSpacing: '0em', opacity: 0, y: -20 }}
             animate={{
@@ -213,6 +216,7 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
           {/* ── PHASE 4 — exercise + improvement reveal ──────────────────── */}
           <motion.div
             className="mt-4 flex flex-col items-center gap-3"
+            style={willChangeTransform}
             initial={{ opacity: 0, y: 28 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, delay: 1.65, ease: 'easeOut' }}
@@ -224,8 +228,8 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
               className="font-mono text-6xl font-black tabular-nums sm:text-7xl"
               style={{
                 color: 'rgb(34, 197, 94)',
-                textShadow:
-                  '0 0 32px rgba(34,197,94,0.85), 0 0 70px rgba(250,204,21,0.5)',
+                filter:
+                  'drop-shadow(0 0 22px rgba(34,197,94,0.85)) drop-shadow(0 0 44px rgba(250,204,21,0.4))',
               }}
               initial={{ scale: 0.7 }}
               animate={{ scale: [0.7, 1.2, 0.95, 1] }}
@@ -264,22 +268,25 @@ function Overlay({ payload }: { payload: GigaDrillPayload }) {
         </div>
       </motion.div>
 
-      {/* Edge vignette — frames the action with pulsing black borders */}
-      <motion.div
+      <div
         className="pointer-events-none absolute inset-0"
         style={{
           boxShadow: 'inset 0 0 240px 100px rgba(0,0,0,0.95)',
         }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
       />
     </motion.div>
   )
 }
 
-// Simplified spiral drill — a sideways cone with spiral grooves. Inline so
-// the cutscene stays self-contained.
+// ─────────────────────────────────────────────────────────────────────────────
+// DrillSVG — sideways cone with grooves that scroll along the longitudinal
+// axis under a clip-path. The illusion of rotation comes purely from the
+// inline CSS @keyframes inside the SVG, not from any whole-element rotate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GROOVE_SPACING = 50
+const GROOVE_COUNT = 18 // cone is ~580 wide → 12 inside + 6 buffer for seamless loop
+
 function DrillSVG() {
   return (
     <svg
@@ -292,6 +299,9 @@ function DrillSVG() {
       aria-hidden
     >
       <defs>
+        <clipPath id="cone-clip">
+          <path d="M 0 100 L 580 22 L 580 178 Z" />
+        </clipPath>
         <linearGradient id="drillBody" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#fde047" />
           <stop offset="40%" stopColor="#f59e0b" />
@@ -302,9 +312,22 @@ function DrillSVG() {
           <stop offset="0%" stopColor="#fffbe6" stopOpacity="0.95" />
           <stop offset="100%" stopColor="#fffbe6" stopOpacity="0" />
         </linearGradient>
+        {/* Inline style — scoped to this SVG. The keyframe translates the
+         *  groove group by exactly one spacing, so the loop is seamless:
+         *  groove[N] lands on the previous slot of groove[N-1] every cycle. */}
+        <style>{`
+          @keyframes drill-grooves-scroll {
+            from { transform: translate3d(0, 0, 0); }
+            to   { transform: translate3d(-${GROOVE_SPACING}px, 0, 0); }
+          }
+          .drill-grooves {
+            animation: drill-grooves-scroll 0.32s linear infinite;
+            will-change: transform;
+          }
+        `}</style>
       </defs>
 
-      {/* Main cone, tip at left */}
+      {/* Main cone body */}
       <path
         d="M 0 100 L 580 22 L 580 178 Z"
         fill="url(#drillBody)"
@@ -312,25 +335,31 @@ function DrillSVG() {
         strokeWidth="2"
       />
 
-      {/* Spiral grooves — diagonal lines that fan when the drill spins */}
-      {[
-        [120, 38, 150, 162],
-        [200, 50, 230, 150],
-        [280, 60, 310, 140],
-        [360, 68, 390, 132],
-        [440, 76, 470, 124],
-        [520, 84, 545, 116],
-      ].map(([x1, y1, x2, y2], i) => (
-        <path
-          key={i}
-          d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} 100 ${x2} ${y2}`}
-          stroke="rgba(0,0,0,0.5)"
-          strokeWidth="3.5"
-          fill="none"
-        />
-      ))}
+      {/* Animated grooves, clipped to cone outline. Movement is along the
+       *  cone's longitudinal axis (right→left) — the 2D analogue of the
+       *  drill rotating around its own length, like a barber pole. */}
+      <g clipPath="url(#cone-clip)">
+        <g className="drill-grooves">
+          {Array.from({ length: GROOVE_COUNT }, (_, i) => {
+            const x = -GROOVE_SPACING + i * GROOVE_SPACING
+            // Each groove is a quadratic curve from above the cone to below
+            // it; clipping confines the visible portion to the cone shape,
+            // and the slight horizontal offset between top/bottom endpoints
+            // gives the wrap-around suggestion you see on real drill bits.
+            return (
+              <path
+                key={i}
+                d={`M ${x - 14} -10 Q ${x} 100 ${x + 14} 210`}
+                stroke="rgba(0,0,0,0.55)"
+                strokeWidth="6"
+                fill="none"
+              />
+            )
+          })}
+        </g>
+      </g>
 
-      {/* Bright top edge */}
+      {/* Bright top-edge highlight — sits above the grooves */}
       <path
         d="M 0 100 L 580 22 L 580 32 L 0 104 Z"
         fill="url(#drillHilight)"
@@ -360,7 +389,7 @@ function DrillSVG() {
         opacity="0.7"
       />
 
-      {/* Pulsing tip glow */}
+      {/* Pulsing tip glow — pure SMIL, no JS overhead */}
       <circle cx="0" cy="100" r="18" fill="#fef9c3" opacity="0.95">
         <animate
           attributeName="opacity"
