@@ -43,14 +43,19 @@ interface UniversalCutsceneProps {
    GEOMETRY  — see temp-animation.tsx for the full derivation
    ═══════════════════════════════════════════════════════════ */
 
+const widthPct = 70
+const heightPct = 35
+const bottomYPct = 50
+const leftXPct = (100 - widthPct) / 2
+
 const BLOCK = {
-  widthPct: 70,
-  heightPct: 35,
-  bottomYPct: 50,
-  topYPct: 15,
-  leftXPct: 15,
-  rightXPct: 85,
-} as const
+  widthPct,
+  heightPct,
+  bottomYPct,
+  topYPct: bottomYPct - heightPct,
+  leftXPct,
+  rightXPct: leftXPct + widthPct,
+}
 
 const DRILL_HEIGHT_PCT = 50
 const DRILL_WIDTH_PCT = 30
