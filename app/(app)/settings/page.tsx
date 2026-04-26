@@ -9,20 +9,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { DietPlan, WorkoutPlan } from '@/lib/types'
-import { LogOut, Loader2, Wrench, Swords } from 'lucide-react'
+import { LogOut, Loader2, Wrench, Swords, Trophy, Layers } from 'lucide-react'
 import { PushNotificationsCard } from '@/components/settings/push-notifications-card'
-import { GigaDrillCutscene } from '@/components/gamification/GigaDrillCutscene'
-import type { GigaDrillPayload } from '@/lib/gamification/spiral-events'
-
-// Fixed mock so the cutscene preview always renders a realistic payload —
-// the numbers are deliberately round-ish to read cleanly in the overlay.
-const MOCK_GIGA_DRILL: GigaDrillPayload = {
-  exercise_name: 'Squat',
-  from_tonnage: 1200,
-  to_tonnage: 1380,
-  improvement_pct: 0.15,
-  bonus_exp: 245,
-}
+import {
+  fireCutscene,
+  fireGigaDrill,
+} from '@/lib/gamification/spiral-events'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -32,7 +24,6 @@ export default function SettingsPage() {
   const [dietPlan, setDietPlan] = useState<DietPlan | null>(null)
   const [dietForm, setDietForm] = useState({ name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', notes: '' })
   const [savingDiet, setSavingDiet] = useState(false)
-  const [showTestDrill, setShowTestDrill] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -209,10 +200,9 @@ export default function SettingsPage() {
       </Card>
 
       {/* ── Dev Tools ─────────────────────────────────────────────────────
-       *  Manual triggers for cutscenes/animations that are otherwise only
-       *  reachable via real gameplay (a PR during a logged session). Ships
-       *  in production for now — we can gate on NODE_ENV or a user flag
-       *  once the catalog grows past "useful for QA". */}
+       *  All test triggers fire through the global spiral-events bus —
+       *  the layout-mounted CutsceneHost picks them up and queues them
+       *  through UniversalCutscene. No local mounted overlay here. */}
       <Card className="border-dashed border-amber-500/40 bg-amber-500/[0.03]">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base text-amber-500">
@@ -224,26 +214,74 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             Anteprima delle animazioni della spirale. Non produce effetti su DB.
           </p>
+
           <Button
             variant="outline"
             className="w-full border-agilita/50 text-agilita hover:bg-agilita/10 hover:text-agilita"
-            onClick={() => setShowTestDrill(true)}
-            disabled={showTestDrill}
+            onClick={() =>
+              fireCutscene({
+                type: 'level_up',
+                title: 'LEVEL UP',
+                subtitle: '▸ Spirale Lv 15',
+                level: 15,
+              })
+            }
           >
             <Swords className="h-4 w-4" />
-            Simula Giga Drill Break
+            Test Level Up
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full border-cyan-400/50 text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-300"
+            onClick={() =>
+              fireCutscene({
+                type: 'achievement',
+                title: 'TROFEO SBLOCCATO',
+                subtitle: '▸ Prima Goccia di Sangue',
+                level: 50,
+                colorOverride: '#00f0ff',
+              })
+            }
+          >
+            <Trophy className="h-4 w-4" />
+            Test Trofeo
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full border-fuchsia-400/50 text-fuchsia-300 hover:bg-fuchsia-400/10 hover:text-fuchsia-300"
+            onClick={() => {
+              // Three events fired back-to-back on the same tick — the
+              // CutsceneHost queue should serialize them: PR → Level Up →
+              // Trofeo, with no overlap.
+              fireGigaDrill({
+                exercise_name: 'Panca Piana',
+                from_tonnage: 1500,
+                to_tonnage: 1725,
+                improvement_pct: 0.15,
+                bonus_exp: 300,
+              })
+              fireCutscene({
+                type: 'level_up',
+                title: 'LEVEL UP',
+                subtitle: '▸ Spirale Lv 16',
+                level: 16,
+              })
+              fireCutscene({
+                type: 'achievement',
+                title: 'TROFEO SBLOCCATO',
+                subtitle: '▸ Combo Spezzata',
+                level: 50,
+                colorOverride: '#00f0ff',
+              })
+            }}
+          >
+            <Layers className="h-4 w-4" />
+            Test Combo Coda
           </Button>
         </CardContent>
       </Card>
-
-      {/* Manual-mode cutscene: the `payload` prop bypasses the event bus,
-       *  `onComplete` flips the state back so the button re-enables. */}
-      {showTestDrill && (
-        <GigaDrillCutscene
-          payload={MOCK_GIGA_DRILL}
-          onComplete={() => setShowTestDrill(false)}
-        />
-      )}
     </div>
   )
 }
