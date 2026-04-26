@@ -3,6 +3,8 @@
 // Used by POST success handlers to fan events out to the overlay host
 // mounted once in the app layout.
 
+import type { CutscenePayload } from '@/components/gamification/UniversalCutscene'
+
 export interface GigaDrillPayload {
   exercise_name: string
   from_tonnage: number
@@ -19,6 +21,7 @@ export interface PerfectWeekPayload {
 export type SpiralEvent =
   | { type: 'giga_drill'; data: GigaDrillPayload }
   | { type: 'perfect_week'; data: PerfectWeekPayload }
+  | { type: 'cutscene'; data: CutscenePayload }
 
 type Listener = (event: SpiralEvent) => void
 
@@ -42,4 +45,10 @@ export function fireGigaDrill(data: GigaDrillPayload): void {
 
 export function firePerfectWeek(data: PerfectWeekPayload): void {
   fireSpiralEvent({ type: 'perfect_week', data })
+}
+
+/** Fire a fully-formed UniversalCutscene payload (Level Up, Achievement,
+ *  custom). Use this for any non-gigadrill cutscene. */
+export function fireCutscene(data: CutscenePayload): void {
+  fireSpiralEvent({ type: 'cutscene', data })
 }

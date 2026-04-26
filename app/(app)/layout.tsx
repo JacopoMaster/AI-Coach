@@ -1,6 +1,6 @@
 import { BottomNav } from '@/components/bottom-nav'
 import { OfflineSyncReplay } from '@/components/offline-sync-replay'
-import { GigaDrillCutscene } from '@/components/gamification/GigaDrillCutscene'
+import { CutsceneHost } from '@/components/gamification/CutsceneHost'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -20,8 +20,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <BottomNav />
       {/* iOS / non-SyncManager browsers replay the offline queue here. */}
       <OfflineSyncReplay />
-      {/* Gamification cutscenes — mounted once, listens to the event bus. */}
-      <GigaDrillCutscene />
+      {/* Gamification cutscenes — single host listens to the event bus
+       *  and dispatches to UniversalCutscene with the next payload. */}
+      <CutsceneHost />
     </div>
   )
 }
