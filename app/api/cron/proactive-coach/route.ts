@@ -38,6 +38,7 @@ interface PushSubRow {
 interface PreferencesRow {
   user_id: string
   evening_reports_enabled: boolean
+  summer_episode_active: boolean
 }
 
 type AnomalyType = 'missed_workout' | 'morning_motivation'
@@ -226,7 +227,7 @@ export async function GET(request: NextRequest) {
   // 6. Preferences — left-join semantics. Missing row = enabled by default.
   const { data: prefsRaw } = await supabase
     .from('user_notification_preferences')
-    .select('user_id, evening_reports_enabled')
+    .select('user_id, evening_reports_enabled, summer_episode_active')
     .in('user_id', userIds)
   const prefsByUser = new Map<string, PreferencesRow>()
   for (const p of (prefsRaw as PreferencesRow[] | null) ?? []) {
@@ -237,10 +238,21 @@ export async function GET(request: NextRequest) {
   const todayISO = romeDateISO(0)
   const yesterdayISO = romeDateISO(-1)
   const decisions: CoachDecision[] = []
+  let skippedSummerEpisode = 0
+  let skippedDisabled = 0
 
   for (const userId of userIds) {
     const pref = prefsByUser.get(userId)
-    if (pref && pref.evening_reports_enabled === false) continue
+
+    // Vacation mode wins over everything else: silence the user entirely.
+    if (pref?.summer_episode_active) {
+      skippedSummerEpisode += 1
+      continue
+    }
+    if (pref && pref.evening_reports_enabled === false) {
+      skippedDisabled += 1
+      continue
+    }
 
     const { data: lastSession } = await supabase
       .from('workout_sessions')
@@ -263,6 +275,8 @@ export async function GET(request: NextRequest) {
       decided: 0,
       sent: 0,
       candidates: userIds.length,
+      skipped_summer_episode: skippedSummerEpisode,
+      skipped_disabled: skippedDisabled,
     })
   }
 
@@ -326,5 +340,7 @@ export async function GET(request: NextRequest) {
     sent: delivered,
     failed,
     pruned: expiredIds.length,
+    skipped_summer_episode: skippedSummerEpisode,
+    skipped_disabled: skippedDisabled,
   })
 }

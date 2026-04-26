@@ -2,10 +2,25 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
+// Shape of a single row in `user_notification_preferences`. Kept inline (not
+// in lib/types.ts) because only the GET/PATCH route and the cron consume it.
+export interface NotificationPreferencesRow {
+  evening_reports_enabled: boolean
+  morning_motivation_enabled: boolean
+  summer_episode_active: boolean
+}
+
 const PreferencesSchema = z.object({
   evening_reports_enabled: z.boolean().optional(),
   morning_motivation_enabled: z.boolean().optional(),
+  summer_episode_active: z.boolean().optional(),
 })
+
+const DEFAULTS: NotificationPreferencesRow = {
+  evening_reports_enabled: true,
+  morning_motivation_enabled: true,
+  summer_episode_active: false,
+}
 
 export async function GET() {
   const supabase = await createClient()
@@ -14,17 +29,15 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('user_notification_preferences')
-    .select('evening_reports_enabled, morning_motivation_enabled')
+    .select('evening_reports_enabled, morning_motivation_enabled, summer_episode_active')
     .eq('user_id', user.id)
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // No row yet → return the schema defaults so the UI can render the toggles
-  // in their "on" state without a second roundtrip to insert defaults.
-  return NextResponse.json(
-    data ?? { evening_reports_enabled: true, morning_motivation_enabled: true }
-  )
+  // in their canonical state without a second roundtrip to insert defaults.
+  return NextResponse.json(data ?? DEFAULTS)
 }
 
 export async function PATCH(request: NextRequest) {
@@ -51,7 +64,7 @@ export async function PATCH(request: NextRequest) {
       },
       { onConflict: 'user_id' }
     )
-    .select('evening_reports_enabled, morning_motivation_enabled')
+    .select('evening_reports_enabled, morning_motivation_enabled, summer_episode_active')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

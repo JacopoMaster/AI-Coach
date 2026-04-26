@@ -11,8 +11,9 @@ import { today } from '@/lib/utils'
 import { enqueue, SYNC_TAG } from '@/lib/offline/sync-queue'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
-import { fireGigaDrill, firePerfectWeek } from '@/lib/gamification/spiral-events'
+import { fireCutscene, firePerfectWeek } from '@/lib/gamification/spiral-events'
 import type { Reward } from '@/lib/gamification/types'
+import type { CutscenePayload } from '@/components/gamification/UniversalCutscene'
 
 type ExerciseLog = {
   plan_exercise_id: string
@@ -35,6 +36,26 @@ type WorkoutDraft = {
 type LastPerf = { sets_done: string; reps_done: string; weight_kg: string }
 
 const DRAFT_PREFIX = 'workout_draft_'
+
+// Drain gamification cutscenes from the server: posts the freshly-earned
+// `Reward` to /api/gamification/pending-events, gets back an ordered
+// CutscenePayload[] (PR → Achievements → Level Up), and feeds it to the
+// CutsceneHost queue one item at a time via fireCutscene. The host's FIFO
+// serializes them so two simultaneous events never overlap.
+async function drainPendingEvents(reward: Reward): Promise<void> {
+  try {
+    const res = await fetch('/api/gamification/pending-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reward }),
+    })
+    if (!res.ok) return
+    const json = (await res.json()) as { events?: CutscenePayload[] }
+    for (const evt of json.events ?? []) fireCutscene(evt)
+  } catch {
+    // Drain is best-effort — the workout save already succeeded.
+  }
+}
 
 async function fetchSessionMeta(ids: string): Promise<{
   notes: Record<string, string>
@@ -270,21 +291,25 @@ export default function WorkoutLogPage() {
       })
 
       if (res.ok) {
-        // Parse reward payload before navigation so any cutscene has its
-        // trigger data queued to the (layout-mounted) overlay host.
+        // Drain server-side gamification events into the CutsceneHost queue
+        // BEFORE we navigate away. The host is mounted at layout level so
+        // events fired here keep playing on the next route.
         try {
           const json = (await res.json()) as { reward?: Reward | null }
           const reward = json?.reward
-          if (reward?.giga_drill) {
-            fireGigaDrill(reward.giga_drill)
-          }
-          // Perfect Week marker — the server currently publishes this via
-          // perfect_week_streak bumps in user_stats; when the backend adds an
-          // explicit reward.perfect_week field, surface the toast immediately.
+
+          // Perfect Week is a flash, not a cutscene — fire it independently
+          // so it doesn't get serialized behind a Level Up.
           const pw = (reward as unknown as { perfect_week?: { streak: number; resonance_mult: number } } | null)?.perfect_week
           if (pw) firePerfectWeek(pw)
+
+          // Anything else (PR, achievements, level up) flows through the
+          // pending-events endpoint and is queued in order via fireCutscene.
+          // The CutsceneHost's FIFO queue serializes them — no overlap.
+          if (reward) await drainPendingEvents(reward)
         } catch {
-          // Response wasn't JSON or was empty — saving still succeeded.
+          // Response wasn't JSON or drain failed — saving itself still
+          // succeeded; the user just won't see post-workout cutscenes.
         }
         setSaving(false)
         finishSuccess()

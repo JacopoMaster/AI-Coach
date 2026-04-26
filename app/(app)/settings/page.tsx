@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { DietPlan, WorkoutPlan } from '@/lib/types'
 import { LogOut, Loader2, Wrench, Swords, Trophy, Layers } from 'lucide-react'
 import { PushNotificationsCard } from '@/components/settings/push-notifications-card'
+import { SummerEpisodeCard } from '@/components/settings/summer-episode-card'
 import {
   fireCutscene,
   fireGigaDrill,
@@ -105,6 +106,9 @@ export default function SettingsPage() {
 
       {/* Push notifications (Proactive Coach) */}
       <PushNotificationsCard />
+
+      {/* Vacation mode — pauses the proactive cron without disabling pushes. */}
+      <SummerEpisodeCard />
 
       {/* Active workout plan info */}
       <Card>
