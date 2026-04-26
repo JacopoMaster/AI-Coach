@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/proactive-coach",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}
