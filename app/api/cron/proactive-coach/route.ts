@@ -96,14 +96,17 @@ const COACH_ROSTER: readonly string[] = [
   'Monkey D. Rufy (One Piece)',
   'Roronoa Zoro (One Piece)',
   'Sanji (One Piece)',
+  'Nami (One Piece)',
   // Dragon Ball
   'Son Goku (Dragon Ball)',
   'Vegeta (Dragon Ball)',
   'Piccolo (Dragon Ball)',
+  'Majin Buu (Dragon Ball)',
+  'Mr. Satan (Dragon Ball)',
   // Naruto
   'Naruto Uzumaki (Naruto)',
   'Kakashi Hatake (Naruto)',
-  'Might Guy (Naruto)',
+  'Sasuke Uchiha (Naruto)',
   // Bleach
   'Ichigo Kurosaki (Bleach)',
   'Kenpachi Zaraki (Bleach)',
@@ -116,6 +119,7 @@ const COACH_ROSTER: readonly string[] = [
   // My Hero Academia
   'All Might (My Hero Academia)',
   'Katsuki Bakugo (My Hero Academia)',
+  'All for One (My Hero Academia)',
   // Hunter x Hunter
   'Gon Freecss (Hunter x Hunter)',
   'Hisoka (Hunter x Hunter)',
@@ -125,11 +129,18 @@ const COACH_ROSTER: readonly string[] = [
   // Gundam
   'Char Aznable (Gundam)',
   'Amuro Ray (Gundam)',
+  // Invincible
+  'Mark Grayson (Invincible)',
+  'Atom eve (Invincible)',
+  'Omniman (Invincible)',
   // Eureka Seven
   'Holland Novak (Eureka Seven)',
+  'Renton Thurston (Eureka Seven)',
+  'Eureka (Eureka Seven)',
   // Evangelion
   'Asuka Langley (Evangelion)',
   'Misato Katsuragi (Evangelion)',
+  'Shinji Ikari (Evangelion)',
   // Re:Zero
   'Subaru Natsuki (Re:Zero)',
   'Rem (Re:Zero)',
@@ -155,6 +166,7 @@ const COACH_ROSTER: readonly string[] = [
   'Tidus (Final Fantasy X)',
   // Persona
   'Joker (Persona 5)',
+  'Makoto Niijima (Persona 5)',
   'Makoto Yuki (Persona 3)',
   // Kingdom Hearts
   'Sora (Kingdom Hearts)',
@@ -162,8 +174,6 @@ const COACH_ROSTER: readonly string[] = [
   // Nier
   '2B (Nier Automata)',
   '9S (Nier Automata)',
-  // Dragon Quest
-  'Erdrick (Dragon Quest)',
   // Zelda
   'Link (The Legend of Zelda)',
   'Ganondorf (The Legend of Zelda)',
@@ -173,6 +183,11 @@ const COACH_ROSTER: readonly string[] = [
   'Ichiban Kasuga (Yakuza: Like a Dragon)',
   // Professor Layton
   'Professor Layton (Professor Layton)',
+  'Luke Triton (Professor Layton)',
+  // Rocky joe
+  'Joe Yabuki (Rocky Joe)',
+  // Star Wars
+  'Yoda (Star Wars)',
 ]
 
 function pickRandomCharacter(): string {
