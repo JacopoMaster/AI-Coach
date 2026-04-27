@@ -82,48 +82,142 @@ const FALLBACK_MISSED = {
 }
 
 // ─── Generazione dinamica dei testi via AI (Haiku) ──────────────────────────
-// "Multiverse Coach": ad ogni invocazione Haiku pesca un personaggio casuale
-// dal roster di anime/JRPG e parla in prima persona restando in character.
+// "Multiverse Coach": il personaggio viene scelto in TypeScript con un sorteggio
+// uniforme dal roster, poi iniettato nel system prompt come ruolo imperativo.
+// Spostiamo la random fuori dall'LLM perché Haiku, lasciato libero, tende a
+// pescare sempre i protagonisti più rappresentati nei dati di pre-training.
 
 const HAIKU_MODEL = 'claude-haiku-4-5'
 
+// Roster fisso. La proporzione tra opere determina la frequenza di apparizione:
+// se vuoi spingere un'opera, aggiungi più personaggi per quella serie.
+const COACH_ROSTER: readonly string[] = [
+  // One Piece
+  'Monkey D. Rufy (One Piece)',
+  'Roronoa Zoro (One Piece)',
+  'Sanji (One Piece)',
+  // Dragon Ball
+  'Son Goku (Dragon Ball)',
+  'Vegeta (Dragon Ball)',
+  'Piccolo (Dragon Ball)',
+  // Naruto
+  'Naruto Uzumaki (Naruto)',
+  'Kakashi Hatake (Naruto)',
+  'Might Guy (Naruto)',
+  // Bleach
+  'Ichigo Kurosaki (Bleach)',
+  'Kenpachi Zaraki (Bleach)',
+  // JoJo
+  'Jotaro Kujo (JoJo)',
+  'Joseph Joestar (JoJo)',
+  // L'Attacco dei Giganti
+  'Levi Ackerman (L\'Attacco dei Giganti)',
+  'Eren Yeager (L\'Attacco dei Giganti)',
+  // My Hero Academia
+  'All Might (My Hero Academia)',
+  'Katsuki Bakugo (My Hero Academia)',
+  // Hunter x Hunter
+  'Gon Freecss (Hunter x Hunter)',
+  'Hisoka (Hunter x Hunter)',
+  // Gurren Lagann
+  'Kamina (Gurren Lagann)',
+  'Simon (Gurren Lagann)',
+  // Gundam
+  'Char Aznable (Gundam)',
+  'Amuro Ray (Gundam)',
+  // Eureka Seven
+  'Holland Novak (Eureka Seven)',
+  // Evangelion
+  'Asuka Langley (Evangelion)',
+  'Misato Katsuragi (Evangelion)',
+  // Re:Zero
+  'Subaru Natsuki (Re:Zero)',
+  'Rem (Re:Zero)',
+  // Gintama
+  'Sakata Gintoki (Gintama)',
+  'Toshiro Hijikata (Gintama)',
+  // Konosuba
+  'Aqua (Konosuba)',
+  'Megumin (Konosuba)',
+  'Kazuma Sato (Konosuba)',
+  // Lovely Complex
+  'Risa Koizumi (Lovely Complex)',
+  // Toradora
+  'Taiga Aisaka (Toradora)',
+  // Code Geass
+  'Lelouch vi Britannia (Code Geass)',
+  'Suzaku Kururugi (Code Geass)',
+  // Mirai Nikki
+  'Yuno Gasai (Mirai Nikki)',
+  // Final Fantasy
+  'Cloud Strife (Final Fantasy VII)',
+  'Sephiroth (Final Fantasy VII)',
+  'Tidus (Final Fantasy X)',
+  // Persona
+  'Joker (Persona 5)',
+  'Makoto Yuki (Persona 3)',
+  // Kingdom Hearts
+  'Sora (Kingdom Hearts)',
+  'Riku (Kingdom Hearts)',
+  // Nier
+  '2B (Nier Automata)',
+  '9S (Nier Automata)',
+  // Dragon Quest
+  'Erdrick (Dragon Quest)',
+  // Zelda
+  'Link (The Legend of Zelda)',
+  'Ganondorf (The Legend of Zelda)',
+  // Yakuza
+  'Kazuma Kiryu (Yakuza)',
+  'Goro Majima (Yakuza)',
+  'Ichiban Kasuga (Yakuza: Like a Dragon)',
+  // Professor Layton
+  'Professor Layton (Professor Layton)',
+]
+
+function pickRandomCharacter(): string {
+  return COACH_ROSTER[Math.floor(Math.random() * COACH_ROSTER.length)]
+}
+
 const CoachPayloadSchema = z.object({
+  // L'AI deve riecheggiare ESATTAMENTE il character ricevuto in input.
+  // Lo usiamo per validare che Haiku abbia rispettato il ruolo assegnato; per
+  // i log, però, la fonte di verità resta il valore scelto in TypeScript.
   character: z
     .string()
     .min(1)
-    .max(60)
+    .max(80)
     .describe(
-      "Nome del personaggio e opera da cui è tratto. Es: 'Sakata Gintoki (Gintama)' o 'Kiryu Kazuma (Yakuza)'"
+      "Riepiloga lo stesso identico nome del personaggio passato nel system prompt, formato 'Nome Cognome (Opera)'."
     ),
   title: z.string().min(1).max(60),
   body: z.string().min(1).max(120),
 })
 
-const MULTIVERSE_COACH_SYSTEM_PROMPT = `Sei il "Multiverse Coach": un sistema che ad OGNI invocazione assume l'identità di UN SINGOLO personaggio pescato a caso dal roster qui sotto. Parli italiano.
+function buildCoachSystemPrompt(selectedCharacter: string): string {
+  return `Sei il "Multiverse Coach". Parli italiano.
 
-ROSTER (rispetta rigorosamente, non inventare opere fuori lista):
-- ANIME: One Piece, Dragon Ball, Naruto, Bleach, JoJo's Bizarre Adventure, L'Attacco dei Giganti, My Hero Academia, Hunter x Hunter, Gurren Lagann, Gundam, Eureka Seven, Evangelion, Re:Zero, Gintama, Konosuba, Lovely Complex, Toradora, Code Geass, Mirai Nikki.
-- JRPG: Final Fantasy, Persona, Kingdom Hearts, Nier, Dragon Quest, Zelda, Yakuza, Professor Layton.
+Il tuo ruolo: sei ${selectedCharacter}. Scrivi il messaggio assumendo rigorosamente la sua identità, i suoi modi di dire, le sue iconiche frasi e la sua attitudine. Non interpretare nessun altro personaggio.
 
-REGOLE OBBLIGATORIE:
-1. Vera casualità: NON ripetere sempre i protagonisti più ovvi. Varia opera e personaggio ad ogni chiamata; pesca anche secondari, antagonisti, mentor.
-2. Parla in PRIMA persona restando perfettamente in character: lessico, tic verbali, riferimenti iconici della sua storia.
-3. CONTESTO TEMPORALE: la notifica arriva tra le 17:00 e le 18:00. La giornata di lavoro/studio sta finendo, è il momento di scendere in palestra.
-4. TONO PER CATEGORIA:
-   - Shonen / Epic (One Piece, DBZ, Naruto, Bleach, MHA, HxH, Gurren Lagann, AoT, JoJo): superamento dei limiti, risvegli e trasformazioni (Gear 5, Bankai, Energia a Spirale, Stand, Nen, Quirk).
-   - JRPG (FF, Persona, KH, Nier, DQ, Zelda, Yakuza, Layton): Level Up, Heat Action, Confidant/Social Link, Boss Fight, Save Point, enigmi.
-   - Comedy (Gintama, Konosuba, Lovely Complex, Toradora): ironia tagliente, sarcasmo sulla pigrizia, rotture della quarta parete.
-   - Mecha / Sci-Fi (Gundam, Eureka Seven, Evangelion, Code Geass, Mirai Nikki, Re:Zero): terminologia tecnica, sincronizzazione, manutenzione del "frame" (il corpo come unità da tenere efficiente).
-5. Inizia subito in character: niente preamboli tipo "Ciao, sono...".
+CONTESTO TEMPORALE: la notifica arriva tra le 17:00 e le 18:00. La giornata di lavoro/studio sta finendo, è il momento di scendere in palestra.
+
+TONO PER CATEGORIA (adatta in base all'opera del tuo personaggio):
+- Shonen / Epic (One Piece, Dragon Ball, Naruto, Bleach, MHA, HxH, Gurren Lagann, AoT, JoJo): superamento dei limiti, risvegli e trasformazioni (Gear 5, Bankai, Energia a Spirale, Stand, Nen, Quirk).
+- JRPG (FF, Persona, KH, Nier, DQ, Zelda, Yakuza, Layton): Level Up, Heat Action, Confidant/Social Link, Boss Fight, Save Point, enigmi.
+- Comedy (Gintama, Konosuba, Lovely Complex, Toradora): ironia tagliente, sarcasmo sulla pigrizia, rotture della quarta parete.
+- Mecha / Sci-Fi (Gundam, Eureka Seven, Evangelion, Code Geass, Mirai Nikki, Re:Zero): terminologia tecnica, sincronizzazione, manutenzione del "frame" (il corpo come unità da tenere efficiente).
+
+Parla in PRIMA persona, inizia subito in character — niente preamboli tipo "Ciao, sono...".
 
 VINCOLI DI OUTPUT (rigidi):
 - SOLO JSON valido, nessun testo prima o dopo, nessun markdown.
-- "character": formato "Nome Cognome (Opera)" — max 60 caratteri.
+- "character": copia-incolla esatto di "${selectedCharacter}".
 - "title": frase d'urto, max 60 caratteri.
 - "body": chiamata all'azione esplicita, max 120 caratteri.
 - ZERO emoji, ZERO hashtag.
 
-Schema: {"character":"...","title":"...","body":"..."}`
+Schema: {"character":"${selectedCharacter}","title":"...","body":"..."}`
+}
 
 function buildCoachUserPrompt(anomaly: AnomalyType): string {
   if (anomaly === 'morning_motivation') {
@@ -155,17 +249,21 @@ async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayloa
           body: FALLBACK_MISSED.body,
         }
 
+  const selectedCharacter = pickRandomCharacter()
+
   try {
     const ai = getAIProvider()
     const result = await ai.generateStructuredOutput(
       buildCoachUserPrompt(anomaly),
-      MULTIVERSE_COACH_SYSTEM_PROMPT,
+      buildCoachSystemPrompt(selectedCharacter),
       CoachPayloadSchema,
       400,
       HAIKU_MODEL
     )
+    // Usiamo il character scelto in TS (fonte di verità per i log) anche se
+    // l'AI lo riecheggia: evita drift se Haiku riformatta o abbrevia il nome.
     return {
-      character: result.character,
+      character: selectedCharacter,
       title: result.title,
       body: result.body,
     }
