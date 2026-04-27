@@ -12,7 +12,7 @@
  * truncate anything longer in the notification shade.
  */
 
-const HAIKU_MODEL = 'claude-3-haiku-20240307'
+const HAIKU_MODEL = 'claude-haiku-4-5'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const MAX_CHARS = 120
 

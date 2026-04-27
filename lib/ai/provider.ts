@@ -117,7 +117,6 @@ export class AnthropicProvider implements AIProvider {
     if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
     const model = modelOverride ?? process.env.ANTHROPIC_TEXT_MODEL ?? 'claude-sonnet-4-6'
-    // Non-default model overrides (e.g. Haiku) cap at 4096; Sonnet uses extended 8192
     const maxOutputTokens = modelOverride ? 4096 : 8192
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -126,11 +125,6 @@ export class AnthropicProvider implements AIProvider {
         retryNote(attempt, lastError) +
         '\n\nRispondi ESCLUSIVAMENTE con JSON valido, nessun testo prima o dopo.'
 
-      // The beta header is only valid for the default claude-3-5-sonnet model
-      const createOptions = modelOverride
-        ? {}
-        : { headers: { 'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15' } }
-
       const response = await this.client.messages.create({
         model,
         max_tokens: maxOutputTokens,
@@ -138,7 +132,7 @@ export class AnthropicProvider implements AIProvider {
         messages: [
           { role: 'user', content: userContent },
         ],
-      }, createOptions)
+      })
 
       try {
         const rawText = (response.content[0] as Anthropic.TextBlock).text
@@ -169,7 +163,7 @@ export class AnthropicProvider implements AIProvider {
           : prompt
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_VISION_MODEL || 'claude-3-haiku-20240307',
+        model: process.env.ANTHROPIC_VISION_MODEL || 'claude-haiku-4-5',
         max_tokens: 1024,
         messages: [
           {
@@ -382,7 +376,7 @@ export function getAIProvider(): AIProvider {
 
 export type MessageIntent = 'simple_ack' | 'data_mutation' | 'complex_coach'
 
-const CLASSIFIER_MODEL = 'claude-3-haiku-20240307'
+const CLASSIFIER_MODEL = 'claude-haiku-4-5'
 
 export async function classifyIntent(userMessage: string): Promise<MessageIntent> {
   if ((process.env.AI_PROVIDER ?? 'anthropic') !== 'anthropic') return 'complex_coach'

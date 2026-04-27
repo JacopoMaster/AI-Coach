@@ -10,7 +10,7 @@ user per day when something looks off.
    mesocycle, pending check-ins, recent notifications (for 24h dedup).
 3. **Detect** — priority-ordered detectors in `anomalies.ts`:
    `pending_checkin` → `missed_workout` → `calorie_deviation` → `inactive_streak`.
-4. **Generate** — `claude-3-haiku-20240307` returns a ≤100-char Italian
+4. **Generate** — `claude-haiku-4-5` returns a ≤100-char Italian
    message. Hand-written fallbacks on API failure.
 5. **Dispatch** — VAPID-signed push to every subscription. 404/410 prunes
    the dead endpoint.

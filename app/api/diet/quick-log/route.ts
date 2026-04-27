@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   let macros
   try {
     const response = await client.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5',
       max_tokens: 120,
       system:
         'Sei un assistente nutrizionale. Stima i macronutrienti da descrizioni di pasti. Rispondi SOLO con JSON valido.',

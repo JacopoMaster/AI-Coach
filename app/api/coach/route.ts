@@ -31,7 +31,7 @@ type CoachResponse = z.infer<typeof CoachResponseSchema>
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const HAIKU_MODEL = 'claude-3-haiku-20240307'
+const HAIKU_MODEL = 'claude-haiku-4-5'
 
 // Static ack pool — avoids a repetitive single phrase while costing zero tokens
 const ACK_RESPONSES = [
