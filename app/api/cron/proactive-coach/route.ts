@@ -361,7 +361,10 @@ export async function GET(request: NextRequest) {
       keys: { p256dh: sub.p256dh, auth: sub.auth },
     }
     try {
-      await webpush.sendNotification(subscription, payload, { TTL: 60 })
+      await webpush.sendNotification(subscription, payload, {
+        headers: { urgency: 'high' },
+        TTL: 43200,
+      })
       delivered += 1
     } catch (err) {
       failed += 1
