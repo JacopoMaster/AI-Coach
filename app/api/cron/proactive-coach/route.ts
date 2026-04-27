@@ -145,12 +145,12 @@ async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayloa
   const fallback: CoachAIPayload =
     anomaly === 'morning_motivation'
       ? {
-          character: 'Sistema',
+          character: 'Il Sistema',
           title: FALLBACK_TRAINING_DAY.title,
           body: FALLBACK_TRAINING_DAY.body,
         }
       : {
-          character: 'Sistema',
+          character: 'Il Sistema',
           title: FALLBACK_MISSED.title,
           body: FALLBACK_MISSED.body,
         }
@@ -381,15 +381,15 @@ export async function GET(request: NextRequest) {
   }
 
   // 8a. Riempi i payload con i testi generati dall'AI (Multiverse Coach via Haiku).
-  // Il titolo finale mostra il personaggio mittente: "[Nome (Opera)] Titolo".
+  // Titolo pulito (Android tronca attorno ai 50 char). Il personaggio diventa
+  // firma in calce al body, così resta visibile senza rubare spazio al titolo.
   // Le chiamate vanno in parallelo: la latenza totale è quella della più lenta,
-  // ed eventuali fallimenti sono isolati per-decisione (fallback "[Sistema]").
+  // ed eventuali fallimenti sono isolati per-decisione (fallback "Il Sistema").
   await Promise.all(
     decisions.map(async (decision) => {
       const ai = await generateCoachPayload(decision.anomalyType)
-      const pushTitle = `[${ai.character}] ${ai.title}`
-      decision.payload.title = pushTitle
-      decision.payload.body = ai.body
+      decision.payload.title = ai.title
+      decision.payload.body = `${ai.body}\n— ${ai.character}`
     })
   )
 
