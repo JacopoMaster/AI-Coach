@@ -20,6 +20,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import webpush, { type PushSubscription, type WebPushError } from 'web-push'
+import { z } from 'zod'
+import { getAIProvider } from '@/lib/ai/provider'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -63,7 +65,7 @@ const ICONS = {
   badge: '/icons/badge-72.png',
 }
 
-// Frasi alla Kamina — fisse per ora, possono diventare dinamiche con Claude.
+// Frasi alla Kamina — usate come fallback se la generazione via Haiku fallisce.
 const KAMINA_TRAINING_DAY = {
   title: 'È giorno di allenamento!',
   body: 'Accendi la trivella e scendi in palestra.',
@@ -76,6 +78,63 @@ const KAMINA_MISSED = {
   body: 'Non si sfonda il cielo stando sul divano, recuperiamo oggi!',
   tag: 'coach-missed-yesterday',
   url: '/workouts',
+}
+
+// ─── Generazione dinamica dei testi via AI (Haiku) ──────────────────────────
+
+const HAIKU_MODEL = 'claude-haiku-4-5'
+
+const KaminaPayloadSchema = z.object({
+  title: z.string().min(1).max(80),
+  body: z.string().min(1).max(180),
+})
+
+const KAMINA_SYSTEM_PROMPT = `Sei Kamina di Gurren Lagann calato nei panni di un personal coach fitness. Parli italiano.
+Devi generare il testo di una notifica push: brevissima, di impatto, sempre nel registro Kamina (trivelle, cieli da sfondare, fiamme, Energia a Spirale, "chi ti credi di essere? io credo in te che credi in te stesso!").
+Vincoli rigidi:
+- "title": massimo 50 caratteri, una frase d'urto.
+- "body": massimo 130 caratteri, contiene una chiamata all'azione esplicita.
+- Nessun emoji.
+- Niente cliché generici tipo "puoi farcela": usa solo immaginario Gurren Lagann.
+Rispondi SOLO con un oggetto JSON {"title":"...","body":"..."}.`
+
+function buildKaminaUserPrompt(anomaly: AnomalyType): string {
+  if (anomaly === 'morning_motivation') {
+    return `Oggi è giorno di allenamento e l'utente non ha ancora messo piede in palestra.
+Genera una notifica che lo costringa ad alzarsi e accendere la trivella adesso.
+Tono: incoraggiamento aggressivo, eroico, che non accetta scuse.`
+  }
+  // missed_workout
+  return `Ieri l'utente ha saltato l'allenamento programmato. Oggi era previsto come giorno di recupero, ma il debito va pagato.
+Genera una notifica di richiamo all'ordine: l'Energia a Spirale si sta spegnendo, va riaccesa allenandosi oggi.
+Tono: rimprovero affettuoso ma incalzante, mai sconfitto.`
+}
+
+async function generateKaminaPayload(
+  anomaly: AnomalyType
+): Promise<{ title: string; body: string }> {
+  const fallback =
+    anomaly === 'morning_motivation'
+      ? { title: KAMINA_TRAINING_DAY.title, body: KAMINA_TRAINING_DAY.body }
+      : { title: KAMINA_MISSED.title, body: KAMINA_MISSED.body }
+
+  try {
+    const ai = getAIProvider()
+    const result = await ai.generateStructuredOutput(
+      buildKaminaUserPrompt(anomaly),
+      KAMINA_SYSTEM_PROMPT,
+      KaminaPayloadSchema,
+      300,
+      HAIKU_MODEL
+    )
+    return { title: result.title, body: result.body }
+  } catch (err) {
+    console.error(
+      '[proactive-coach] AI payload generation failed, using static fallback:',
+      err
+    )
+    return fallback
+  }
 }
 
 // ─── VAPID setup ────────────────────────────────────────────────────────────
@@ -280,7 +339,18 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // 8. Send pushes (parallel; per-endpoint failure isolated).
+  // 8a. Riempi i payload con i testi generati dall'AI (Haiku).
+  // Le chiamate vanno in parallelo: la latenza totale è quella della più lenta,
+  // ed eventuali fallimenti sono isolati per-decisione (fallback ai testi fissi).
+  await Promise.all(
+    decisions.map(async (decision) => {
+      const ai = await generateKaminaPayload(decision.anomalyType)
+      decision.payload.title = ai.title
+      decision.payload.body = ai.body
+    })
+  )
+
+  // 8b. Send pushes (parallel; per-endpoint failure isolated).
   let delivered = 0
   let failed = 0
   const expiredIds: string[] = []
