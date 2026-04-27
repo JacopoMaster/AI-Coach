@@ -65,69 +65,110 @@ const ICONS = {
   badge: '/icons/badge-72.png',
 }
 
-// Frasi alla Kamina — usate come fallback se la generazione via Haiku fallisce.
-const KAMINA_TRAINING_DAY = {
+// Testi statici di fallback — usati solo se la chiamata Haiku fallisce.
+// Il `tag` e `url` restano stabili: servono al Service Worker per dedup e routing.
+const FALLBACK_TRAINING_DAY = {
   title: 'È giorno di allenamento!',
-  body: 'Accendi la trivella e scendi in palestra.',
+  body: 'Hai chiuso la giornata, ora muoviti: scendi in palestra.',
   tag: 'coach-training-day',
   url: '/workouts',
 }
 
-const KAMINA_MISSED = {
-  title: 'Ehi! Ieri hai saltato l’allenamento!',
-  body: 'Non si sfonda il cielo stando sul divano, recuperiamo oggi!',
+const FALLBACK_MISSED = {
+  title: 'Ieri hai saltato l’allenamento!',
+  body: 'Niente scuse: recuperiamo stasera, prima che la giornata finisca.',
   tag: 'coach-missed-yesterday',
   url: '/workouts',
 }
 
 // ─── Generazione dinamica dei testi via AI (Haiku) ──────────────────────────
+// "Multiverse Coach": ad ogni invocazione Haiku pesca un personaggio casuale
+// dal roster di anime/JRPG e parla in prima persona restando in character.
 
 const HAIKU_MODEL = 'claude-haiku-4-5'
 
-const KaminaPayloadSchema = z.object({
-  title: z.string().min(1).max(80),
-  body: z.string().min(1).max(180),
+const CoachPayloadSchema = z.object({
+  character: z
+    .string()
+    .min(1)
+    .max(60)
+    .describe(
+      "Nome del personaggio e opera da cui è tratto. Es: 'Sakata Gintoki (Gintama)' o 'Kiryu Kazuma (Yakuza)'"
+    ),
+  title: z.string().min(1).max(60),
+  body: z.string().min(1).max(120),
 })
 
-const KAMINA_SYSTEM_PROMPT = `Sei Kamina di Gurren Lagann calato nei panni di un personal coach fitness. Parli italiano.
-Devi generare il testo di una notifica push: brevissima, di impatto, sempre nel registro Kamina (trivelle, cieli da sfondare, fiamme, Energia a Spirale, "chi ti credi di essere? io credo in te che credi in te stesso!").
-Vincoli rigidi:
-- "title": massimo 50 caratteri, una frase d'urto.
-- "body": massimo 130 caratteri, contiene una chiamata all'azione esplicita.
-- Nessun emoji.
-- Niente cliché generici tipo "puoi farcela": usa solo immaginario Gurren Lagann.
-Rispondi SOLO con un oggetto JSON {"title":"...","body":"..."}.`
+const MULTIVERSE_COACH_SYSTEM_PROMPT = `Sei il "Multiverse Coach": un sistema che ad OGNI invocazione assume l'identità di UN SINGOLO personaggio pescato a caso dal roster qui sotto. Parli italiano.
 
-function buildKaminaUserPrompt(anomaly: AnomalyType): string {
+ROSTER (rispetta rigorosamente, non inventare opere fuori lista):
+- ANIME: One Piece, Dragon Ball, Naruto, Bleach, JoJo's Bizarre Adventure, L'Attacco dei Giganti, My Hero Academia, Hunter x Hunter, Gurren Lagann, Gundam, Eureka Seven, Evangelion, Re:Zero, Gintama, Konosuba, Lovely Complex, Toradora, Code Geass, Mirai Nikki.
+- JRPG: Final Fantasy, Persona, Kingdom Hearts, Nier, Dragon Quest, Zelda, Yakuza, Professor Layton.
+
+REGOLE OBBLIGATORIE:
+1. Vera casualità: NON ripetere sempre i protagonisti più ovvi. Varia opera e personaggio ad ogni chiamata; pesca anche secondari, antagonisti, mentor.
+2. Parla in PRIMA persona restando perfettamente in character: lessico, tic verbali, riferimenti iconici della sua storia.
+3. CONTESTO TEMPORALE: la notifica arriva tra le 17:00 e le 18:00. La giornata di lavoro/studio sta finendo, è il momento di scendere in palestra.
+4. TONO PER CATEGORIA:
+   - Shonen / Epic (One Piece, DBZ, Naruto, Bleach, MHA, HxH, Gurren Lagann, AoT, JoJo): superamento dei limiti, risvegli e trasformazioni (Gear 5, Bankai, Energia a Spirale, Stand, Nen, Quirk).
+   - JRPG (FF, Persona, KH, Nier, DQ, Zelda, Yakuza, Layton): Level Up, Heat Action, Confidant/Social Link, Boss Fight, Save Point, enigmi.
+   - Comedy (Gintama, Konosuba, Lovely Complex, Toradora): ironia tagliente, sarcasmo sulla pigrizia, rotture della quarta parete.
+   - Mecha / Sci-Fi (Gundam, Eureka Seven, Evangelion, Code Geass, Mirai Nikki, Re:Zero): terminologia tecnica, sincronizzazione, manutenzione del "frame" (il corpo come unità da tenere efficiente).
+5. Inizia subito in character: niente preamboli tipo "Ciao, sono...".
+
+VINCOLI DI OUTPUT (rigidi):
+- SOLO JSON valido, nessun testo prima o dopo, nessun markdown.
+- "character": formato "Nome Cognome (Opera)" — max 60 caratteri.
+- "title": frase d'urto, max 60 caratteri.
+- "body": chiamata all'azione esplicita, max 120 caratteri.
+- ZERO emoji, ZERO hashtag.
+
+Schema: {"character":"...","title":"...","body":"..."}`
+
+function buildCoachUserPrompt(anomaly: AnomalyType): string {
   if (anomaly === 'morning_motivation') {
-    return `Oggi è giorno di allenamento e l'utente non ha ancora messo piede in palestra.
-Genera una notifica che lo costringa ad alzarsi e accendere la trivella adesso.
-Tono: incoraggiamento aggressivo, eroico, che non accetta scuse.`
+    return `Sono circa le 17:30. L'utente ha appena chiuso la giornata di lavoro/studio e oggi era previsto allenamento, ma non ha ancora messo piede in palestra.
+Genera la notifica push: deve farlo alzare dalla scrivania e portarlo in palestra ADESSO, prima che la sera si allunghi e perda lo slancio.`
   }
   // missed_workout
-  return `Ieri l'utente ha saltato l'allenamento programmato. Oggi era previsto come giorno di recupero, ma il debito va pagato.
-Genera una notifica di richiamo all'ordine: l'Energia a Spirale si sta spegnendo, va riaccesa allenandosi oggi.
-Tono: rimprovero affettuoso ma incalzante, mai sconfitto.`
+  return `Sono circa le 17:30. Ieri l'utente ha saltato l'allenamento programmato. Oggi era teoricamente un giorno di recupero, ma il debito va pagato stasera.
+Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. Tono incalzante, mai sconfitto.`
 }
 
-async function generateKaminaPayload(
-  anomaly: AnomalyType
-): Promise<{ title: string; body: string }> {
-  const fallback =
+interface CoachAIPayload {
+  character: string
+  title: string
+  body: string
+}
+
+async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayload> {
+  const fallback: CoachAIPayload =
     anomaly === 'morning_motivation'
-      ? { title: KAMINA_TRAINING_DAY.title, body: KAMINA_TRAINING_DAY.body }
-      : { title: KAMINA_MISSED.title, body: KAMINA_MISSED.body }
+      ? {
+          character: 'Sistema',
+          title: FALLBACK_TRAINING_DAY.title,
+          body: FALLBACK_TRAINING_DAY.body,
+        }
+      : {
+          character: 'Sistema',
+          title: FALLBACK_MISSED.title,
+          body: FALLBACK_MISSED.body,
+        }
 
   try {
     const ai = getAIProvider()
     const result = await ai.generateStructuredOutput(
-      buildKaminaUserPrompt(anomaly),
-      KAMINA_SYSTEM_PROMPT,
-      KaminaPayloadSchema,
-      300,
+      buildCoachUserPrompt(anomaly),
+      MULTIVERSE_COACH_SYSTEM_PROMPT,
+      CoachPayloadSchema,
+      400,
       HAIKU_MODEL
     )
-    return { title: result.title, body: result.body }
+    return {
+      character: result.character,
+      title: result.title,
+      body: result.body,
+    }
   } catch (err) {
     console.error(
       '[proactive-coach] AI payload generation failed, using static fallback:',
@@ -195,7 +236,7 @@ function decideForUser(
     return {
       userId,
       anomalyType: 'morning_motivation',
-      payload: { ...KAMINA_TRAINING_DAY, ...ICONS },
+      payload: { ...FALLBACK_TRAINING_DAY, ...ICONS },
     }
   }
 
@@ -205,7 +246,7 @@ function decideForUser(
     return {
       userId,
       anomalyType: 'missed_workout',
-      payload: { ...KAMINA_MISSED, ...ICONS },
+      payload: { ...FALLBACK_MISSED, ...ICONS },
     }
   }
 
@@ -339,13 +380,15 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // 8a. Riempi i payload con i testi generati dall'AI (Haiku).
+  // 8a. Riempi i payload con i testi generati dall'AI (Multiverse Coach via Haiku).
+  // Il titolo finale mostra il personaggio mittente: "[Nome (Opera)] Titolo".
   // Le chiamate vanno in parallelo: la latenza totale è quella della più lenta,
-  // ed eventuali fallimenti sono isolati per-decisione (fallback ai testi fissi).
+  // ed eventuali fallimenti sono isolati per-decisione (fallback "[Sistema]").
   await Promise.all(
     decisions.map(async (decision) => {
-      const ai = await generateKaminaPayload(decision.anomalyType)
-      decision.payload.title = ai.title
+      const ai = await generateCoachPayload(decision.anomalyType)
+      const pushTitle = `[${ai.character}] ${ai.title}`
+      decision.payload.title = pushTitle
       decision.payload.body = ai.body
     })
   )
