@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { MeasurementForm } from '@/components/body/measurement-form'
 import { CsvImport } from '@/components/body/csv-import'
 import { AiScan } from '@/components/body/ai-scan'
@@ -9,7 +9,17 @@ import { BodyMeasurement } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/utils'
-import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
+
+/** Monday 00:00 (local) of the ISO week containing `date`, as YYYY-MM-DD. */
+function isoMondayLocal(date: Date): string {
+  const d = new Date(date)
+  const dow = d.getDay() // 0=Sun..6=Sat
+  const offset = dow === 0 ? -6 : 1 - dow
+  d.setDate(d.getDate() + offset)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString().split('T')[0]
+}
 
 export default function BodyPage() {
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
@@ -30,6 +40,21 @@ export default function BodyPage() {
 
   const latest = measurements[measurements.length - 1]
 
+  // ── Weekly weigh-in flag ──────────────────────────────────────────────────
+  // Derived from the already-loaded `measurements` (no extra fetch). True when
+  // at least one measurement with weight_kg falls between Monday-of-this-week
+  // and today inclusive. The 30-day default window for `days` always covers a
+  // full ISO week, so this stays correct regardless of the chart-range toggle.
+  const weighedThisWeek = useMemo(() => {
+    const monday = isoMondayLocal(new Date())
+    return measurements.some(
+      (m) =>
+        m.date >= monday &&
+        m.weight_kg != null &&
+        Number(m.weight_kg) > 0
+    )
+  }, [measurements])
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
@@ -39,6 +64,25 @@ export default function BodyPage() {
           Aggiungi
         </Button>
       </div>
+
+      {/* Weekly weigh-in streak indicator */}
+      {weighedThisWeek ? (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-200"
+        >
+          <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>Pesata settimanale completata</span>
+        </div>
+      ) : (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-200"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>Ricordati di pesarti questa settimana per la streak</span>
+        </div>
+      )}
 
       {/* Latest stats */}
       {latest && (

@@ -2,17 +2,23 @@
 // Called by awardExp() after a save when the day crosses into a new ISO week,
 // or by the /api/stats endpoint as a lazy tick if `resonance_last_tick` is stale.
 //
-// Definition of a Perfect Week (ISO Mon→Sun):
-//   ≥ 3 workout_sessions
-//   ≥ 5 diet_logs with protein_g ≥ 0.9 · active diet_plan.protein_g
-//   ≥ 1 body_measurement with a non-null weight
+// Definition of a Perfect Week (ISO Mon→Sun) — softened on 2026-05-04 to fight
+// burnout: diet logs are no longer a requirement, and only ONE weekly weigh-in
+// is needed. The workout target is now read from the active plan's day count
+// (workout_plan_days) instead of being hardcoded.
+//
+//   ≥ N workout_sessions, where N = COUNT(workout_plan_days in active plan)
+//                                   (fallback 3 if no active plan)
+//   ≥ 1 body_measurement with a non-null weight in the week
 //
 // Vacation-aware: when V days of the week fall inside a vacation period, the
-// thresholds scale proportionally (thresholdDaysInWeek := 7 - V). If all 7
-// days are vacation, the week is a "bye": no increment, no break.
+// workout threshold scales proportionally (ceil(N · activeDays/7)). The weight
+// requirement stays at 1 unless the whole week is vacation. If all 7 days are
+// vacation, the week is a "bye": no increment, no break.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { vacationDaysInWeek } from './vacation'
+import { unlockMetricAchievements } from './check-achievements'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 const RESONANCE_CAP = 3.0
@@ -60,25 +66,23 @@ export async function evaluateLastWeek(
   const activeDays = 7 - vacDays
   const scale = activeDays / 7
 
-  const [sessionsRes, dietPlanRes, logsRes, bodyRes, statsRes] = await Promise.all([
+  const [sessionsRes, planDaysRes, bodyRes, statsRes] = await Promise.all([
     supabase
       .from('workout_sessions')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('date', weekStartISO)
       .lte('date', weekEndISO),
+    // Count days of the user's currently-active plan → that's "X allenamenti
+    // a settimana" per the plan. We can't filter workout_plan_days by user
+    // directly (it's joined through workout_plans.user_id), so we resolve the
+    // plan id first and then count its days.
     supabase
-      .from('diet_plans')
-      .select('protein_g')
+      .from('workout_plans')
+      .select('id, days:workout_plan_days(id)')
       .eq('user_id', userId)
       .eq('is_active', true)
       .maybeSingle(),
-    supabase
-      .from('diet_logs')
-      .select('protein_g')
-      .eq('user_id', userId)
-      .gte('date', weekStartISO)
-      .lte('date', weekEndISO),
     supabase
       .from('body_measurements')
       .select('id', { count: 'exact', head: true })
@@ -86,28 +90,40 @@ export async function evaluateLastWeek(
       .gte('date', weekStartISO)
       .lte('date', weekEndISO)
       .not('weight_kg', 'is', null),
-    supabase.from('user_stats').select('resonance_mult, perfect_week_streak, longest_streak').eq('user_id', userId).single(),
+    supabase
+      .from('user_stats')
+      .select('resonance_mult, perfect_week_streak, longest_streak, max_perfect_streak')
+      .eq('user_id', userId)
+      .single(),
   ])
 
   const sessions = sessionsRes.count ?? 0
-  const proteinTarget = dietPlanRes.data?.protein_g ?? null
-  const goodDietLogs = proteinTarget
-    ? (logsRes.data ?? []).filter((l) => (l.protein_g ?? 0) >= 0.9 * proteinTarget).length
-    : 0
+  const planDayCount =
+    (planDaysRes.data as { days?: { id: string }[] } | null)?.days?.length ?? 0
+  // Fallback to 3 when the user has no active plan yet — keeps existing
+  // first-week behavior for new accounts before they configure a plan.
+  const targetSessions = planDayCount > 0 ? planDayCount : 3
   const measurements = bodyRes.count ?? 0
 
-  const needSessions = Math.ceil(3 * scale)
-  const needDietLogs = Math.ceil(5 * scale)
+  const needSessions = Math.ceil(targetSessions * scale)
   const needMeasurements = activeDays >= 1 ? 1 : 0
 
   const isPerfect =
     sessions >= needSessions &&
-    (proteinTarget ? goodDietLogs >= needDietLogs : false) &&
     measurements >= needMeasurements
 
-  const currentMult = statsRes.data?.resonance_mult ?? MIN_MULT
-  const currentStreak = statsRes.data?.perfect_week_streak ?? 0
-  const currentLongest = statsRes.data?.longest_streak ?? 0
+  const statsRow = statsRes.data as
+    | {
+        resonance_mult: number
+        perfect_week_streak: number
+        longest_streak: number
+        max_perfect_streak?: number
+      }
+    | null
+  const currentMult = statsRow?.resonance_mult ?? MIN_MULT
+  const currentStreak = statsRow?.perfect_week_streak ?? 0
+  const currentLongest = statsRow?.longest_streak ?? 0
+  const currentMaxPerfect = statsRow?.max_perfect_streak ?? 0
 
   let newMult: number
   let newStreak: number
@@ -119,6 +135,7 @@ export async function evaluateLastWeek(
     newStreak = 0
   }
   const newLongest = Math.max(currentLongest, newStreak)
+  const newMaxPerfect = Math.max(currentMaxPerfect, newStreak)
 
   if (options.commit) {
     await supabase
@@ -127,9 +144,26 @@ export async function evaluateLastWeek(
         resonance_mult: newMult,
         perfect_week_streak: newStreak,
         longest_streak: newLongest,
+        max_perfect_streak: newMaxPerfect,
         resonance_last_tick: new Date().toISOString(),
       })
       .eq('user_id', userId)
+
+    // Streak progress-bar achievements (iron/steel/gold/platinum/diamond).
+    // Run after the commit so the row reflects newMaxPerfect; a failure here
+    // must not block the tick — log and move on.
+    if (newMaxPerfect > currentMaxPerfect) {
+      try {
+        await unlockMetricAchievements(
+          supabase,
+          userId,
+          'max_perfect_streak',
+          newMaxPerfect
+        )
+      } catch (err) {
+        console.error('[gamification] streak achievement check failed:', err)
+      }
+    }
   }
 
   return { weekStart: weekStartISO, isPerfect, skipped: false, newMultiplier: newMult, streakAfter: newStreak }

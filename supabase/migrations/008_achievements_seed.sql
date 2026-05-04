@@ -9,7 +9,7 @@
 -- in the catalog once unlocked (the UI masks them as "???").
 --
 -- Source buckets covered:
---   • workout_session    → first_spark, iron_will, century_press, dawn_patrol
+--   • workout_session    → first_spark, iron_will, century_press
 --   • diet_log           → first_bite, macro_tracker, protein_warrior
 --   • body_measurement   → on_the_scale, weight_watcher
 --   • perfect_week       → perfect_spiral, bonded_spiral, eternal_spiral,
@@ -31,7 +31,6 @@ INSERT INTO achievements (code, name, description, icon, rarity, exp_reward, hid
   ('bonded_spiral',    'Spirale Vincolata',       '3 Perfect Week consecutive. La risonanza si stabilizza.',          'link',         'rare',      400, false),
   ('eternal_spiral',   'Spirale Eterna',          '8 Perfect Week consecutive. Cap di risonanza raggiunto.',          'infinity',     'rare',      800, false),
   ('infinite_spiral',  'Energia Infinita',        'Risonanza al ×3.00 per la prima volta.',                           'radio',        'rare',      500, false),
-  ('dawn_patrol',      'Pattuglia dell''Alba',    '10 allenamenti registrati prima delle 10:00.',                     'sunrise',      'uncommon',  200, false),
 
   -- Lifting
   ('century_press',    'Centurione',              'Primo sollevamento con carico ≥ 100 kg.',                          'trophy',       'uncommon',  150, false),

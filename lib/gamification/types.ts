@@ -31,8 +31,21 @@ export interface UserStats {
   pierced_the_heavens: boolean
   pierced_at: string | null
   baseline_tonnage: number | null
+  // Migration 009 — long-term progression counters powering the
+  // metric-based achievement bars (achievements.metric_key/target_value).
+  total_workouts: number
+  total_tonnage: number
+  max_perfect_streak: number
+  anime_waifu_notifs: number
   updated_at: string
 }
+
+/** Metric keys driving the progress-bar achievements (see migration 009). */
+export type AchievementMetricKey =
+  | 'total_workouts'
+  | 'total_tonnage'
+  | 'max_perfect_streak'
+  | 'anime_waifu_notifs'
 
 export interface ExpHistoryEntry {
   id: string
@@ -94,6 +107,10 @@ export interface Achievement {
   rarity: 'common' | 'uncommon' | 'rare' | 'legendary'
   exp_reward: number
   hidden: boolean
+  // Migration 009 — populated only on metric-driven progress-bar achievements.
+  // Both NULL ⇒ event-driven one-shot (no progress bar in the UI).
+  metric_key: AchievementMetricKey | null
+  target_value: number | null
 }
 
 export interface UserAchievement {

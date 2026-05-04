@@ -421,6 +421,26 @@ export async function POST(request: NextRequest) {
     let reward: Reward | null = null
     try {
       const baseSessionExp = 100 + (exercises?.length ?? 0) * 15
+      // Tonnage = Σ weight × sets × reps. Ranges like "8-10" use the low end
+      // (conservative; matches Giga Drill detection in check-giga-drill.ts).
+      const sessionTonnage = ((exercises ?? []) as Array<{
+        weight_kg: number | null
+        sets_done: number | null
+        reps_done: string | number | null
+      }>).reduce((acc, ex) => {
+        const w = Number(ex.weight_kg ?? 0)
+        const s = Number(ex.sets_done ?? 0)
+        const repsRaw = ex.reps_done
+        let r = 0
+        if (typeof repsRaw === 'number') r = repsRaw
+        else if (typeof repsRaw === 'string') {
+          const m = repsRaw.match(/\d+/)
+          if (m) r = parseInt(m[0], 10)
+        }
+        if (w <= 0 || s <= 0 || r <= 0) return acc
+        return acc + w * s * r
+      }, 0)
+
       reward = await awardExp(supabase, {
         userId: user.id,
         source: 'workout_session',
@@ -428,6 +448,7 @@ export async function POST(request: NextRequest) {
         baseExp: baseSessionExp,
         statTagged: 'forza',
         rationale: `Sessione loggata (${exercises?.length ?? 0} esercizi)`,
+        workoutTonnage: sessionTonnage,
       })
 
       // Giga Drill detection — use the level AFTER the session EXP is applied

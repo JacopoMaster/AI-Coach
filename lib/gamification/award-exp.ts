@@ -17,9 +17,16 @@ import {
   stageFromLevel,
   tierFromLevel,
 } from './exp-curve'
-import { checkAchievements } from './check-achievements'
+import { checkAchievements, unlockMetricAchievements } from './check-achievements'
 import { tickResonanceIfNeeded } from './check-perfect-week'
-import type { ExpSource, Reward, SpiralStage, StatTag, UserStats } from './types'
+import type {
+  Achievement,
+  ExpSource,
+  Reward,
+  SpiralStage,
+  StatTag,
+  UserStats,
+} from './types'
 
 /** Flat bonus awarded on top of the multiplier bump when a Perfect Week is
  *  confirmed — small, symbolic, also makes `source='perfect_week'` land in
@@ -41,6 +48,10 @@ export interface AwardExpInput {
   /** Context flags forwarded to checkAchievements. */
   justGigaDrill?: boolean
   justMesoClear?: boolean
+  /** Sum of weight × sets × reps across the session's exercises. Required
+   *  when source === 'workout_session' to feed `user_stats.total_tonnage`
+   *  and the tonnage progress-bar achievements (migration 009). */
+  workoutTonnage?: number
 }
 
 const ZERO_REWARD: Reward = {
@@ -67,6 +78,7 @@ export async function awardExp(
     skipResonanceTick = false,
     justGigaDrill = false,
     justMesoClear = false,
+    workoutTonnage = 0,
   } = input
 
   if (baseExp <= 0) return ZERO_REWARD
@@ -139,6 +151,17 @@ export async function awardExp(
   const newStage = stageFromLevel(newLevel)
   const pierced = !stats.pierced_the_heavens && newLevel >= 100
 
+  // Long-term cumulative counters powering the progress-bar achievements
+  // (migration 009). Only bumped on workout_session — diet/body sources
+  // already drive their own one-shot achievements via checkAchievements.
+  const isWorkoutSource = source === 'workout_session'
+  const oldTotalWorkouts = Number(stats.total_workouts ?? 0)
+  const oldTotalTonnage = Number(stats.total_tonnage ?? 0)
+  const newTotalWorkouts = isWorkoutSource ? oldTotalWorkouts + 1 : oldTotalWorkouts
+  const newTotalTonnage = isWorkoutSource
+    ? oldTotalTonnage + Math.max(0, workoutTonnage)
+    : oldTotalTonnage
+
   const update: Partial<UserStats> = {
     exp_total: newExp,
     level: newLevel,
@@ -149,6 +172,10 @@ export async function awardExp(
   if (pierced) {
     update.pierced_the_heavens = true
     update.pierced_at = new Date().toISOString()
+  }
+  if (isWorkoutSource) {
+    update.total_workouts = newTotalWorkouts
+    update.total_tonnage = newTotalTonnage
   }
 
   await supabase.from('user_stats').update(update).eq('user_id', userId)
@@ -201,8 +228,8 @@ export async function awardExp(
     await supabase.from('spiral_evolution_log').insert(events)
   }
 
-  // 5. Achievements.
-  const unlocked = await checkAchievements(supabase, {
+  // 5. Achievements — event-driven (one-shots) + metric-driven (progress bars).
+  const eventUnlocks = await checkAchievements(supabase, {
     userId,
     source,
     currentLevel: newLevel,
@@ -212,6 +239,33 @@ export async function awardExp(
     justGigaDrill,
     justMesoClear,
   })
+
+  // Metric-bar evaluation runs only on the source(s) that just bumped a
+  // counter — keeps the no-op path free of extra round-trips.
+  const metricUnlocks: Achievement[] = []
+  if (isWorkoutSource) {
+    try {
+      const [byCount, byTonnage] = await Promise.all([
+        unlockMetricAchievements(
+          supabase,
+          userId,
+          'total_workouts',
+          newTotalWorkouts
+        ),
+        unlockMetricAchievements(
+          supabase,
+          userId,
+          'total_tonnage',
+          newTotalTonnage
+        ),
+      ])
+      metricUnlocks.push(...byCount, ...byTonnage)
+    } catch (err) {
+      console.error('[gamification] metric achievement check failed:', err)
+    }
+  }
+
+  const unlocked: Achievement[] = [...eventUnlocks, ...metricUnlocks]
 
   // Recursively award EXP for each achievement (source=achievement → no loop risk
   // because the checker short-circuits on already-unlocked codes, and

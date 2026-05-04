@@ -15,6 +15,7 @@ import {
 } from '@/lib/gamification/exp-curve'
 import type {
   Achievement,
+  AchievementMetricKey,
   ExpHistoryEntry,
   UserAchievement,
   UserStats,
@@ -77,6 +78,30 @@ function relativeDate(iso: string): string {
   if (days === 1) return 'ieri'
   if (days < 7) return `${days} giorni fa`
   return then.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
+}
+
+/** Numeric label under the metric progress bar.
+ *  - total_tonnage gets ' kg' suffix.
+ *  - All metrics use Italian thousands separators (10.500 / 60.000). */
+function formatMetricLabel(
+  current: number,
+  target: number,
+  key: AchievementMetricKey
+): string {
+  const fmt = (n: number) => Math.floor(n).toLocaleString('it-IT')
+  const suffix = key === 'total_tonnage' ? ' kg' : ''
+  return `${fmt(current)} / ${fmt(target)}${suffix}`
+}
+
+/** Read a counter off the user_stats row in a type-safe way.
+ *  user_stats fields are populated by migration 009; they default to 0 in SQL
+ *  so the nullish coalesce is purely defensive. */
+function metricValue(
+  stats: UserStats | null | undefined,
+  key: AchievementMetricKey
+): number {
+  if (!stats) return 0
+  return Number(stats[key] ?? 0)
 }
 
 function compactNum(n: number): string {
@@ -385,6 +410,40 @@ export default async function StatusPage() {
                 <p className="mt-2 text-[11px] leading-snug text-zinc-400">
                   {displayHidden ? 'Trofeo nascosto. Continua a salire nella spirale.' : a.description}
                 </p>
+
+                {/* Progress bar — only on metric-driven achievements that are
+                    still locked AND not hidden (hidden trophies stay opaque
+                    until unlocked, so we don't leak their target). */}
+                {!unlocked && !displayHidden && a.metric_key && a.target_value != null && (() => {
+                  const target = Number(a.target_value ?? 0)
+                  if (target <= 0) return null
+                  const current = metricValue(stats, a.metric_key)
+                  const pct = Math.min(100, Math.max(0, (current / target) * 100))
+                  return (
+                    <div className="mt-2 space-y-1">
+                      <div
+                        className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-900/80 ring-1 ring-inset ring-white/5"
+                        role="progressbar"
+                        aria-valuenow={Math.round(pct)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${pct}%`,
+                            background:
+                              'linear-gradient(90deg, rgba(34,197,94,0.85) 0%, rgba(251,191,36,0.85) 100%)',
+                            boxShadow: '0 0 6px rgba(16, 185, 129, 0.35)',
+                          }}
+                        />
+                      </div>
+                      <div className="text-[10px] font-mono tabular-nums text-zinc-400">
+                        {formatMetricLabel(current, target, a.metric_key)}
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 <div className="mt-2 flex items-center justify-between text-[10px] text-zinc-500">
                   <span className="font-mono tabular-nums">

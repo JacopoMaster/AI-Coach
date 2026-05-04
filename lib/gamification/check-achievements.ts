@@ -3,7 +3,7 @@
 // Grants any newly-met achievements with a dedicated EXP entry.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Achievement, ExpSource } from './types'
+import type { Achievement, AchievementMetricKey, ExpSource } from './types'
 
 interface CheckContext {
   userId: string
@@ -66,21 +66,6 @@ export async function checkAchievements(
     if ((count ?? 0) >= 1) candidates.push('century_press')
   }
 
-  if (ctx.source === 'workout_session' && !unlockedCodes.has('dawn_patrol')) {
-    // 10 workouts logged before 10:00 local — approximated via created_at UTC
-    // hour < 8 (Italy is UTC+1/+2, so 10:00 local ≈ 8-9 UTC). Good enough for v1.
-    const { count } = await supabase
-      .from('workout_sessions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', ctx.userId)
-      .lt('created_at', '2100-01-01T08:00:00Z') // placeholder, see note below
-    // NOTE: Supabase PostgREST can't do `EXTRACT(HOUR FROM created_at)` via the
-    // client filter. A DB-side function or materialized view would be cleaner;
-    // we skip this one for v1 unless we have a server-side evaluator. Remove
-    // the placeholder so we don't falsely unlock:
-    if (false && (count ?? 0) >= 10) candidates.push('dawn_patrol')
-  }
-
   if (ctx.source === 'giga_drill_break' && !unlockedCodes.has('giga_drill')) {
     candidates.push('giga_drill')
   }
@@ -123,6 +108,59 @@ export async function checkAchievements(
 
   // Only return achievements we actually unlocked (avoids double EXP on races).
   const insertedCodes = new Set((actuallyInserted ?? []).map((r) => r.achievement_code))
+  return toUnlock.filter((a) => insertedCodes.has(a.code))
+}
+
+/** Evaluate metric-based progress-bar achievements for a single bumped metric.
+ *
+ *  Selects every achievement whose `metric_key` matches and whose
+ *  `target_value` is now satisfied by `currentValue`, filters out the ones
+ *  the user has already unlocked, and inserts the rest into
+ *  `user_achievements`. Returns the rows that were genuinely inserted (so the
+ *  caller can credit EXP without double-paying on a race). */
+export async function unlockMetricAchievements(
+  supabase: SupabaseClient,
+  userId: string,
+  metricKey: AchievementMetricKey,
+  currentValue: number
+): Promise<Achievement[]> {
+  if (currentValue <= 0) return []
+
+  const { data: candidates } = await supabase
+    .from('achievements')
+    .select('*')
+    .eq('metric_key', metricKey)
+    .lte('target_value', currentValue)
+
+  const rows = (candidates ?? []) as Achievement[]
+  if (rows.length === 0) return []
+
+  const { data: alreadyUnlocked } = await supabase
+    .from('user_achievements')
+    .select('achievement_code')
+    .eq('user_id', userId)
+    .in(
+      'achievement_code',
+      rows.map((r) => r.code)
+    )
+  const unlockedCodes = new Set(
+    (alreadyUnlocked ?? []).map((r) => r.achievement_code)
+  )
+
+  const toUnlock = rows.filter((r) => !unlockedCodes.has(r.code))
+  if (toUnlock.length === 0) return []
+
+  const { data: actuallyInserted } = await supabase
+    .from('user_achievements')
+    .upsert(
+      toUnlock.map((a) => ({ user_id: userId, achievement_code: a.code })),
+      { onConflict: 'user_id,achievement_code', ignoreDuplicates: true }
+    )
+    .select('achievement_code')
+
+  const insertedCodes = new Set(
+    (actuallyInserted ?? []).map((r) => r.achievement_code)
+  )
   return toUnlock.filter((a) => insertedCodes.has(a.code))
 }
 

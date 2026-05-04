@@ -22,6 +22,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import webpush, { type PushSubscription, type WebPushError } from 'web-push'
 import { z } from 'zod'
 import { getAIProvider } from '@/lib/ai/provider'
+import { isWaifu, pickRandomCharacter, type Character } from '@/lib/coach/roster'
+import { unlockMetricAchievements } from '@/lib/gamification/check-achievements'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -56,6 +58,10 @@ interface CoachDecision {
     icon: string
     badge: string
   }
+  /** Character picked when the AI payload was generated — known only after
+   *  the parallel `generateCoachPayload` pass completes. Used post-delivery
+   *  to credit `user_stats.anime_waifu_notifs` when applicable. */
+  character?: Character
 }
 
 // ─── Configurazione ─────────────────────────────────────────────────────────
@@ -88,111 +94,6 @@ const FALLBACK_MISSED = {
 // pescare sempre i protagonisti più rappresentati nei dati di pre-training.
 
 const HAIKU_MODEL = 'claude-haiku-4-5'
-
-// Roster fisso. La proporzione tra opere determina la frequenza di apparizione:
-// se vuoi spingere un'opera, aggiungi più personaggi per quella serie.
-const COACH_ROSTER: readonly string[] = [
-  // One Piece
-  'Monkey D. Rufy (One Piece)',
-  'Roronoa Zoro (One Piece)',
-  'Sanji (One Piece)',
-  'Nami (One Piece)',
-  // Dragon Ball
-  'Son Goku (Dragon Ball)',
-  'Vegeta (Dragon Ball)',
-  'Piccolo (Dragon Ball)',
-  'Majin Buu (Dragon Ball)',
-  'Mr. Satan (Dragon Ball)',
-  // Naruto
-  'Naruto Uzumaki (Naruto)',
-  'Kakashi Hatake (Naruto)',
-  'Sasuke Uchiha (Naruto)',
-  // Bleach
-  'Ichigo Kurosaki (Bleach)',
-  'Kenpachi Zaraki (Bleach)',
-  // JoJo
-  'Jotaro Kujo (JoJo)',
-  'Joseph Joestar (JoJo)',
-  // L'Attacco dei Giganti
-  'Levi Ackerman (L\'Attacco dei Giganti)',
-  'Eren Yeager (L\'Attacco dei Giganti)',
-  // My Hero Academia
-  'All Might (My Hero Academia)',
-  'Katsuki Bakugo (My Hero Academia)',
-  'All for One (My Hero Academia)',
-  // Hunter x Hunter
-  'Gon Freecss (Hunter x Hunter)',
-  'Hisoka (Hunter x Hunter)',
-  // Gurren Lagann
-  'Kamina (Gurren Lagann)',
-  'Simon (Gurren Lagann)',
-  // Gundam
-  'Char Aznable (Gundam)',
-  'Amuro Ray (Gundam)',
-  // Invincible
-  'Mark Grayson (Invincible)',
-  'Atom eve (Invincible)',
-  'Omniman (Invincible)',
-  // Eureka Seven
-  'Holland Novak (Eureka Seven)',
-  'Renton Thurston (Eureka Seven)',
-  'Eureka (Eureka Seven)',
-  // Evangelion
-  'Asuka Langley (Evangelion)',
-  'Misato Katsuragi (Evangelion)',
-  'Shinji Ikari (Evangelion)',
-  // Re:Zero
-  'Subaru Natsuki (Re:Zero)',
-  'Rem (Re:Zero)',
-  // Gintama
-  'Sakata Gintoki (Gintama)',
-  'Toshiro Hijikata (Gintama)',
-  // Konosuba
-  'Aqua (Konosuba)',
-  'Megumin (Konosuba)',
-  'Kazuma Sato (Konosuba)',
-  // Lovely Complex
-  'Risa Koizumi (Lovely Complex)',
-  // Toradora
-  'Taiga Aisaka (Toradora)',
-  // Code Geass
-  'Lelouch vi Britannia (Code Geass)',
-  'Suzaku Kururugi (Code Geass)',
-  // Mirai Nikki
-  'Yuno Gasai (Mirai Nikki)',
-  // Final Fantasy
-  'Cloud Strife (Final Fantasy VII)',
-  'Sephiroth (Final Fantasy VII)',
-  'Tidus (Final Fantasy X)',
-  // Persona
-  'Joker (Persona 5)',
-  'Makoto Niijima (Persona 5)',
-  'Makoto Yuki (Persona 3)',
-  // Kingdom Hearts
-  'Sora (Kingdom Hearts)',
-  'Riku (Kingdom Hearts)',
-  // Nier
-  '2B (Nier Automata)',
-  '9S (Nier Automata)',
-  // Zelda
-  'Link (The Legend of Zelda)',
-  'Ganondorf (The Legend of Zelda)',
-  // Yakuza
-  'Kazuma Kiryu (Yakuza)',
-  'Goro Majima (Yakuza)',
-  'Ichiban Kasuga (Yakuza: Like a Dragon)',
-  // Professor Layton
-  'Professor Layton (Professor Layton)',
-  'Luke Triton (Professor Layton)',
-  // Rocky joe
-  'Joe Yabuki (Rocky Joe)',
-  // Star Wars
-  'Yoda (Star Wars)',
-]
-
-function pickRandomCharacter(): string {
-  return COACH_ROSTER[Math.floor(Math.random() * COACH_ROSTER.length)]
-}
 
 const CoachPayloadSchema = z.object({
   // L'AI deve riecheggiare ESATTAMENTE il character ricevuto in input.
@@ -245,21 +146,27 @@ Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. To
 }
 
 interface CoachAIPayload {
-  character: string
+  /** The Character object the cron picked. The AI is instructed to echo
+   *  `character.name`, but the TS-side selection is the source of truth (so
+   *  we can also know its tags — used for the waifu counter). When the AI
+   *  call fails, this is the synthetic "Il Sistema" placeholder. */
+  character: Character
   title: string
   body: string
 }
+
+const SYSTEM_PLACEHOLDER: Character = { name: 'Il Sistema', tags: [] }
 
 async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayload> {
   const fallback: CoachAIPayload =
     anomaly === 'morning_motivation'
       ? {
-          character: 'Il Sistema',
+          character: SYSTEM_PLACEHOLDER,
           title: FALLBACK_TRAINING_DAY.title,
           body: FALLBACK_TRAINING_DAY.body,
         }
       : {
-          character: 'Il Sistema',
+          character: SYSTEM_PLACEHOLDER,
           title: FALLBACK_MISSED.title,
           body: FALLBACK_MISSED.body,
         }
@@ -270,7 +177,7 @@ async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayloa
     const ai = getAIProvider()
     const result = await ai.generateStructuredOutput(
       buildCoachUserPrompt(anomaly),
-      buildCoachSystemPrompt(selectedCharacter),
+      buildCoachSystemPrompt(selectedCharacter.name),
       CoachPayloadSchema,
       400,
       HAIKU_MODEL
@@ -501,8 +408,9 @@ export async function GET(request: NextRequest) {
   await Promise.all(
     decisions.map(async (decision) => {
       const ai = await generateCoachPayload(decision.anomalyType)
+      decision.character = ai.character
       decision.payload.title = ai.title
-      decision.payload.body = `${ai.body}\n— ${ai.character}`
+      decision.payload.body = `${ai.body}\n— ${ai.character.name}`
     })
   )
 
@@ -510,8 +418,13 @@ export async function GET(request: NextRequest) {
   let delivered = 0
   let failed = 0
   const expiredIds: string[] = []
+  const deliveredUsers = new Set<string>()
 
-  const sendOne = async (sub: PushSubRow, payload: string) => {
+  const sendOne = async (
+    userId: string,
+    sub: PushSubRow,
+    payload: string
+  ) => {
     const subscription: PushSubscription = {
       endpoint: sub.endpoint,
       keys: { p256dh: sub.p256dh, auth: sub.auth },
@@ -522,6 +435,7 @@ export async function GET(request: NextRequest) {
         TTL: 43200,
       })
       delivered += 1
+      deliveredUsers.add(userId)
     } catch (err) {
       failed += 1
       const status = (err as WebPushError)?.statusCode
@@ -537,7 +451,42 @@ export async function GET(request: NextRequest) {
     decisions.flatMap((decision) => {
       const userSubs = subsByUser.get(decision.userId) ?? []
       const payload = JSON.stringify(decision.payload)
-      return userSubs.map((sub) => sendOne(sub, payload))
+      return userSubs.map((sub) => sendOne(decision.userId, sub, payload))
+    })
+  )
+
+  // 8c. Bump anime_waifu_notifs for users whose delivered coach was a waifu.
+  //     Read-modify-write per user is fine: this cron handles ≤ a handful of
+  //     users (single-user app per CLAUDE.md). Failures are logged but not
+  //     fatal — the push itself was already sent.
+  await Promise.all(
+    decisions.map(async (decision) => {
+      const ch = decision.character
+      if (!ch || !isWaifu(ch)) return
+      if (!deliveredUsers.has(decision.userId)) return
+      try {
+        const { data: row } = await supabase
+          .from('user_stats')
+          .select('anime_waifu_notifs')
+          .eq('user_id', decision.userId)
+          .single()
+        const current = Number(
+          (row as { anime_waifu_notifs?: number } | null)?.anime_waifu_notifs ?? 0
+        )
+        const next = current + 1
+        await supabase
+          .from('user_stats')
+          .update({ anime_waifu_notifs: next })
+          .eq('user_id', decision.userId)
+        await unlockMetricAchievements(
+          supabase,
+          decision.userId,
+          'anime_waifu_notifs',
+          next
+        )
+      } catch (err) {
+        console.error('[proactive-coach] waifu counter bump failed:', err)
+      }
     })
   )
 
