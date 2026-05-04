@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { BodyScanSchema, BodyScanOutput } from '@/lib/ai/body-scan-schema'
 import { getAIProvider } from '@/lib/ai/provider'
+import { awardExp } from '@/lib/gamification/award-exp'
+import { toGamificationPayload } from '@/lib/gamification/payload'
+import type { Reward } from '@/lib/gamification/types'
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
@@ -118,5 +121,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: dbError.message }, { status: 500 })
   }
 
-  return NextResponse.json(measurement)
+  // ── Gamification: same values as /api/body single-measurement upsert.
+  //    Idempotent via source_id = body_measurements.id (upsert on
+  //    user_id+date keeps the id stable on re-scan, so no double-pay).
+  let reward: Reward | null = null
+  try {
+    const hasWeight = typeof measurement.weight_kg === 'number' && measurement.weight_kg > 0
+    const source = hasWeight ? 'weight_log' : 'body_measurement'
+    const baseExp = hasWeight ? 25 : 15
+    reward = await awardExp(supabase, {
+      userId: user.id,
+      source,
+      sourceId: measurement.id,
+      baseExp,
+      statTagged: 'agilita',
+      rationale: hasWeight ? 'Peso registrato (scan)' : 'Misurazione corporea (scan)',
+    })
+  } catch (err) {
+    console.error('[gamification] body scan award failed:', err)
+  }
+
+  return NextResponse.json({
+    ...measurement,
+    success: true,
+    reward,
+    gamification: toGamificationPayload(reward),
+  })
 }

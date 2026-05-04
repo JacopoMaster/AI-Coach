@@ -2,6 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
+import { awardExp } from '@/lib/gamification/award-exp'
+import { toGamificationPayload } from '@/lib/gamification/payload'
+import type { Reward } from '@/lib/gamification/types'
+
+// Same per-entry budget used by /api/nutrition add_entry — quick-log writes
+// to the same nutrition_entries table.
+const NUTRITION_ENTRY_BASE_EXP = 10
 
 const MacroSchema = z.object({
   name: z.string(),
@@ -66,5 +73,28 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ entry: data, macros })
+
+  // ── Gamification: same path as /api/nutrition add_entry, idempotent on
+  //    the new nutrition_entries.id. Non-fatal.
+  let reward: Reward | null = null
+  try {
+    reward = await awardExp(supabase, {
+      userId: user.id,
+      source: 'diet_log',
+      sourceId: data.id,
+      baseExp: NUTRITION_ENTRY_BASE_EXP,
+      statTagged: 'resistenza',
+      rationale: `Pasto loggato (quick): ${data.name}`,
+    })
+  } catch (err) {
+    console.error('[gamification] diet quick-log award failed:', err)
+  }
+
+  return NextResponse.json({
+    success: true,
+    entry: data,
+    macros,
+    reward,
+    gamification: toGamificationPayload(reward),
+  })
 }

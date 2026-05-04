@@ -237,11 +237,11 @@ Schema: {"character":"${selectedCharacter}","title":"...","body":"..."}`
 function buildCoachUserPrompt(anomaly: AnomalyType): string {
   if (anomaly === 'morning_motivation') {
     return `Sono circa le 17:30. L'utente ha appena chiuso la giornata di lavoro/studio e oggi era previsto allenamento, ma non ha ancora messo piede in palestra.
-Genera la notifica push: deve farlo alzare dalla scrivania e portarlo in palestra ADESSO, prima che la sera si allunghi e perda lo slancio.`
+Genera la notifica push: deve farlo alzare dalla scrivania e portarlo in palestra ADESSO, prima che la sera si allunghi e perda lo slancio, ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia.`
   }
   // missed_workout
   return `Sono circa le 17:30. Ieri l'utente ha saltato l'allenamento programmato. Oggi era teoricamente un giorno di recupero, ma il debito va pagato stasera.
-Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. Tono incalzante, mai sconfitto.`
+Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. Tono incalzante, mai sconfitto, ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia.`
 }
 
 interface CoachAIPayload {

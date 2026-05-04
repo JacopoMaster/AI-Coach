@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { awardExp } from '@/lib/gamification/award-exp'
 import { detectGigaDrills } from '@/lib/gamification/check-giga-drill'
 import { levelFromTotalExp } from '@/lib/gamification/exp-curve'
+import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
 
 function getCurrentWeek(startDate: string, durationWeeks: number): number {
@@ -473,7 +474,12 @@ export async function POST(request: NextRequest) {
       console.error('[gamification] log_session award failed:', err)
     }
 
-    return NextResponse.json({ ...session, reward })
+    return NextResponse.json({
+      ...session,
+      success: true,
+      reward,
+      gamification: toGamificationPayload(reward),
+    })
   }
 
   if (action === 'update_exercise') {

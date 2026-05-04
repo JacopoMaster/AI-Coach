@@ -1,6 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { awardExp } from '@/lib/gamification/award-exp'
+import { toGamificationPayload } from '@/lib/gamification/payload'
+import type { Reward } from '@/lib/gamification/types'
+
+// Per-entry base EXP for nutrition_entries. Derived from the established
+// daily diet target of 50 EXP (legacy diet_logs: 30 base + 20 protein bonus)
+// at the design budget of ~5 meals/day → 10 EXP/entry. Idempotent via the
+// entry uuid in exp_history.UNIQUE(source, source_id).
+const NUTRITION_ENTRY_BASE_EXP = 10
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 
@@ -106,7 +115,29 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+
+    // ── Gamification: per-entry EXP via the unified engine ───────────────
+    // Non-fatal: any failure here MUST NOT break the save.
+    let reward: Reward | null = null
+    try {
+      reward = await awardExp(supabase, {
+        userId: user.id,
+        source: 'diet_log',
+        sourceId: data.id,
+        baseExp: NUTRITION_ENTRY_BASE_EXP,
+        statTagged: 'resistenza',
+        rationale: `Pasto loggato: ${data.name}`,
+      })
+    } catch (err) {
+      console.error('[gamification] nutrition add_entry award failed:', err)
+    }
+
+    return NextResponse.json({
+      ...data,
+      success: true,
+      reward,
+      gamification: toGamificationPayload(reward),
+    })
   }
 
   if (body.action === 'delete_entry') {

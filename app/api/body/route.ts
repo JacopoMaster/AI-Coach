@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { awardExp } from '@/lib/gamification/award-exp'
+import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
 
 export async function GET(request: NextRequest) {
@@ -71,7 +72,12 @@ export async function POST(request: NextRequest) {
     console.error('[gamification] body measurement award failed:', err)
   }
 
-  return NextResponse.json({ ...data, reward })
+  return NextResponse.json({
+    ...data,
+    success: true,
+    reward,
+    gamification: toGamificationPayload(reward),
+  })
 }
 
 export async function DELETE(request: NextRequest) {
