@@ -53,15 +53,24 @@ export interface WorkoutSession {
   exercises?: SessionExercise[]
 }
 
+export interface SessionSet {
+  reps: number
+  weight: number
+  completed?: boolean
+}
+
 export interface SessionExercise {
   id: string
   session_id: string
   plan_exercise_id: string | null
+  // New per-set tracking format. Null on legacy rows that predate this column.
+  sets: SessionSet[] | null
+  // Legacy flat columns — preserved for backward compatibility on historical
+  // rows. New writes leave these null and rely on `sets` instead.
   sets_done: number | null
   reps_done: string | null
   weight_kg: number | null
   notes: string | null
-  rpe: number | null
   plan_exercise?: PlanExercise
 }
 

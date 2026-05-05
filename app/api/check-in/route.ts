@@ -37,11 +37,11 @@ Analizza i log degli ultimi 7 giorni e rispondi SOLO in JSON valido.
 
 VINCOLO ASSOLUTO: Non proporre cambi di esercizi. Modifica SOLO peso e reps.
 
-Regole della doppia progressione:
-- Se reps_eseguiti >= reps_target E RPE_medio <= 8: aumenta reps di 1
-- Se reps_eseguiti >= reps_target E RPE_medio <= 7: aumenta peso (+2.5kg compound, +1kg isolamento) e reset reps a target_min
-- Se RPE_medio >= 9 su 1 sessione: mantieni invariato
-- Se RPE_medio >= 9 su 2+ sessioni consecutive: non aumentare peso
+Regole della doppia progressione (basate su volume e completamento, non RPE):
+- Se in TUTTE le serie reps_eseguiti >= reps_target: aumenta reps di 1
+- Se reps massime sono state colpite con margine (es. range alto raggiunto in tutte le serie) per >= 2 sessioni: aumenta peso (+2.5kg compound, +1kg isolamento) e reset reps a target_min
+- Se reps_eseguiti calano nelle ultime serie (sintomo di affaticamento): mantieni invariato
+- Se reps_eseguiti < reps_target su 2+ sessioni consecutive: non aumentare peso, eventualmente decrescere
 
 SCHEDA ATTIVA:
 ${JSON.stringify(plan, null, 2)}
@@ -95,7 +95,7 @@ Puoi proporre cambi di esercizi per il prossimo mesociclo.
 
 Criteri per sostituire un esercizio (tutti e tre raccomandati prima di proporre replace):
 - Nessun progresso di peso o reps per >= 3 settimane consecutive
-- RPE medio >= 9 su più sessioni consecutive (esercizio incompatibile anatomicamente)
+- Reps eseguite costantemente sotto il target su più sessioni consecutive (esercizio incompatibile anatomicamente)
 - Note soggettive negative ripetute
 
 VINCOLO ASSOLUTO: Mantieni SEMPRE i compound fondamentali (squat, bench press, deadlift, overhead press, row) salvo motivazione eccezionale documentata nella rationale.

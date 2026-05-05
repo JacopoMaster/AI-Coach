@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { WorkoutPlan, WorkoutPlanDay, ExerciseProgression } from '@/lib/types'
+import { WorkoutPlan, WorkoutPlanDay, ExerciseProgression, SessionSet } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,19 +10,19 @@ import { Textarea } from '@/components/ui/textarea'
 import { today } from '@/lib/utils'
 import { enqueue, SYNC_TAG } from '@/lib/offline/sync-queue'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Loader2, Plus, Minus } from 'lucide-react'
 import { fireCutscene, firePerfectWeek } from '@/lib/gamification/spiral-events'
 import type { Reward } from '@/lib/gamification/types'
 import type { CutscenePayload } from '@/components/gamification/UniversalCutscene'
 
+// Per-set draft state — strings so empty inputs don't coerce to NaN.
+type SetDraft = { reps: string; weight: string }
+
 type ExerciseLog = {
   plan_exercise_id: string
   name: string
-  sets_done: string
-  reps_done: string
-  weight_kg: string
+  sets: SetDraft[]
   notes: string
-  rpe: string
 }
 
 type WorkoutDraft = {
@@ -72,6 +72,21 @@ async function fetchSessionMeta(ids: string): Promise<{
     for (const p of meso.progressions) progressionMap[p.plan_exercise_id] = p
   }
   return { notes: notes || {}, perf: perf || {}, progressionMap }
+}
+
+// Build the initial per-set drafts for an exercise based on its plan
+// definition + any active mesocycle progression target. Returns one
+// SetDraft per planned set, prefilled with the target weight/reps.
+function buildInitialSets(
+  planSets: number,
+  defaultReps: string,
+  defaultWeight: string
+): SetDraft[] {
+  const count = Math.max(1, Math.floor(planSets) || 1)
+  return Array.from({ length: count }, () => ({
+    reps: defaultReps,
+    weight: defaultWeight,
+  }))
 }
 
 export default function WorkoutLogPage() {
@@ -195,19 +210,24 @@ export default function WorkoutLogPage() {
 
     const logs = (day.exercises || []).map((ex) => {
       const prog = progressionMap[ex.id]
+      // Target reps: progression target → plan range low end → plan reps verbatim.
+      const targetRepsRaw = prog?.target_reps != null ? String(prog.target_reps) : ex.reps
+      const repsLowEnd = (() => {
+        const m = String(targetRepsRaw).match(/\d+/)
+        return m ? m[0] : ''
+      })()
+      const targetWeight =
+        prog?.target_weight_kg != null
+          ? String(prog.target_weight_kg)
+          : ex.weight_kg != null
+          ? String(ex.weight_kg)
+          : ''
+      const setCount = prog?.target_sets ?? ex.sets ?? 3
       return {
         plan_exercise_id: ex.id,
         name: ex.name,
-        sets_done: prog?.target_sets != null ? String(prog.target_sets) : String(ex.sets),
-        reps_done: prog?.target_reps != null ? String(prog.target_reps) : ex.reps,
-        weight_kg:
-          prog?.target_weight_kg != null
-            ? String(prog.target_weight_kg)
-            : ex.weight_kg
-            ? String(ex.weight_kg)
-            : '',
+        sets: buildInitialSets(setCount, repsLowEnd, targetWeight),
         notes: '',
-        rpe: '',
       }
     })
     setExerciseLogs(logs)
@@ -216,10 +236,65 @@ export default function WorkoutLogPage() {
     setStep('log-exercises')
   }
 
-  function updateLog(field: keyof ExerciseLog, value: string) {
+  function updateSetField(setIdx: number, field: keyof SetDraft, value: string) {
     setExerciseLogs((prev) => {
       const next = [...prev]
-      next[currentExIdx] = { ...next[currentExIdx], [field]: value }
+      const ex = { ...next[currentExIdx] }
+      const sets = ex.sets.map((s, i) => (i === setIdx ? { ...s, [field]: value } : s))
+      ex.sets = sets
+      next[currentExIdx] = ex
+      return next
+    })
+  }
+
+  function addSet() {
+    setExerciseLogs((prev) => {
+      const next = [...prev]
+      const ex = { ...next[currentExIdx] }
+      const last = ex.sets[ex.sets.length - 1]
+      // Pre-fill the new row with the previous set's values — almost always
+      // what the user wants on a straight-set scheme.
+      ex.sets = [...ex.sets, last ? { ...last } : { reps: '', weight: '' }]
+      next[currentExIdx] = ex
+      return next
+    })
+  }
+
+  function removeSet(setIdx: number) {
+    setExerciseLogs((prev) => {
+      const next = [...prev]
+      const ex = { ...next[currentExIdx] }
+      if (ex.sets.length <= 1) return prev
+      ex.sets = ex.sets.filter((_, i) => i !== setIdx)
+      next[currentExIdx] = ex
+      return next
+    })
+  }
+
+  function updateNotes(value: string) {
+    setExerciseLogs((prev) => {
+      const next = [...prev]
+      next[currentExIdx] = { ...next[currentExIdx], notes: value }
+      return next
+    })
+  }
+
+  function copyFromLastTime(prevPerf: LastPerf) {
+    setExerciseLogs((prev) => {
+      const next = [...prev]
+      const ex = { ...next[currentExIdx] }
+      const setCount = prevPerf.sets_done
+        ? Math.max(1, parseInt(prevPerf.sets_done, 10) || ex.sets.length)
+        : ex.sets.length
+      const repsLowEnd = (() => {
+        const m = (prevPerf.reps_done || '').match(/\d+/)
+        return m ? m[0] : ''
+      })()
+      ex.sets = Array.from({ length: setCount }, () => ({
+        reps: repsLowEnd,
+        weight: prevPerf.weight_kg || '',
+      }))
+      next[currentExIdx] = ex
       return next
     })
   }
@@ -253,14 +328,19 @@ export default function WorkoutLogPage() {
 
   async function saveSession() {
     setSaving(true)
-    const exercises = exerciseLogs.map((log) => ({
-      plan_exercise_id: log.plan_exercise_id || null,
-      sets_done: log.sets_done ? parseInt(log.sets_done) : null,
-      reps_done: log.reps_done || null,
-      weight_kg: log.weight_kg ? parseFloat(log.weight_kg) : null,
-      notes: log.notes || null,
-      rpe: log.rpe ? parseInt(log.rpe) : null,
-    }))
+    const exercises = exerciseLogs.map((log) => {
+      const cleanSets: SessionSet[] = log.sets
+        .map((s) => ({
+          reps: s.reps ? parseInt(s.reps, 10) : NaN,
+          weight: s.weight ? parseFloat(s.weight) : NaN,
+        }))
+        .filter((s) => Number.isFinite(s.reps) && Number.isFinite(s.weight))
+      return {
+        plan_exercise_id: log.plan_exercise_id || null,
+        sets: cleanSets,
+        notes: log.notes || null,
+      }
+    })
 
     const body = JSON.stringify({
       action: 'log_session',
@@ -450,11 +530,7 @@ export default function WorkoutLogPage() {
                   <button
                     type="button"
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => {
-                      if (prevPerf.sets_done) updateLog('sets_done', prevPerf.sets_done)
-                      if (prevPerf.reps_done) updateLog('reps_done', prevPerf.reps_done)
-                      if (prevPerf.weight_kg) updateLog('weight_kg', prevPerf.weight_kg)
-                    }}
+                    onClick={() => copyFromLastTime(prevPerf)}
                   >
                     Copia da ultima volta
                   </button>
@@ -462,46 +538,60 @@ export default function WorkoutLogPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Serie eseguite</Label>
-                <Input
-                  type="number"
-                  value={log.sets_done}
-                  onChange={(e) => updateLog('sets_done', e.target.value)}
-                  placeholder="3"
-                />
+            {/* Per-set table */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-[3rem_1fr_1fr_2rem] items-center gap-2 px-1 text-xs uppercase tracking-wide text-muted-foreground">
+                <span>Serie</span>
+                <span>Peso (kg)</span>
+                <span>Reps</span>
+                <span />
               </div>
-              <div className="space-y-1">
-                <Label>Ripetizioni</Label>
-                <Input
-                  value={log.reps_done}
-                  onChange={(e) => updateLog('reps_done', e.target.value)}
-                  placeholder="8-12"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Peso (kg)</Label>
-                <Input
-                  type="number"
-                  step="0.5"
-                  value={log.weight_kg}
-                  onChange={(e) => updateLog('weight_kg', e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>RPE (1-10)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={log.rpe}
-                  onChange={(e) => updateLog('rpe', e.target.value)}
-                  placeholder="7"
-                />
-              </div>
+              {log.sets.map((s, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[3rem_1fr_1fr_2rem] items-center gap-2"
+                >
+                  <span className="text-sm font-mono tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    value={s.weight}
+                    onChange={(e) => updateSetField(i, 'weight', e.target.value)}
+                    placeholder="0"
+                  />
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={s.reps}
+                    onChange={(e) => updateSetField(i, 'reps', e.target.value)}
+                    placeholder="0"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeSet(i)}
+                    disabled={log.sets.length <= 1}
+                    aria-label="Rimuovi serie"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={addSet}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Aggiungi serie
+              </Button>
             </div>
+
             <div className="space-y-1">
               <Label>Note esercizio</Label>
               {previousNotes[log.plan_exercise_id] && (
@@ -514,7 +604,7 @@ export default function WorkoutLogPage() {
               )}
               <Textarea
                 value={log.notes}
-                onChange={(e) => updateLog('notes', e.target.value)}
+                onChange={(e) => updateNotes(e.target.value)}
                 placeholder="Form, sensazioni, difficoltà..."
                 className="h-20"
               />
@@ -553,19 +643,26 @@ export default function WorkoutLogPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {exerciseLogs.map((log, i) => (
-              <div key={i} className="px-6 py-3">
-                <p className="font-medium text-sm">{log.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {log.sets_done}×{log.reps_done}
-                  {log.weight_kg && ` @ ${log.weight_kg}kg`}
-                  {log.rpe && ` · RPE ${log.rpe}`}
-                </p>
-                {log.notes && (
-                  <p className="text-xs text-muted-foreground italic mt-0.5">{log.notes}</p>
-                )}
-              </div>
-            ))}
+            {exerciseLogs.map((log, i) => {
+              const filled = log.sets.filter((s) => s.weight && s.reps)
+              return (
+                <div key={i} className="px-6 py-3">
+                  <p className="font-medium text-sm">{log.name}</p>
+                  {filled.length > 0 ? (
+                    <p className="text-xs text-muted-foreground font-mono tabular-nums">
+                      {filled
+                        .map((s) => `${s.weight}kg × ${s.reps}`)
+                        .join(' · ')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">Nessuna serie loggata</p>
+                  )}
+                  {log.notes && (
+                    <p className="text-xs text-muted-foreground italic mt-0.5">{log.notes}</p>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>

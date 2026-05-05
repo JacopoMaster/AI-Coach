@@ -8,6 +8,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expForNextLevel } from './exp-curve'
+import { computeExerciseTonnage } from '@/lib/workouts/tonnage'
+import type { SessionSet } from '@/lib/types'
 
 export interface GigaDrillResult {
   triggered: boolean
@@ -19,29 +21,15 @@ export interface GigaDrillResult {
   bonus_exp: number
 }
 
+// Accepts BOTH the new per-set format (`sets: [{reps, weight}]`) and the
+// legacy flat format (`weight_kg`, `sets_done`, `reps_done`).
+// `computeExerciseTonnage` picks the right formula per row.
 interface SessionExerciseInput {
   plan_exercise_id: string | null
-  weight_kg: number | null
-  sets_done: number | null
-  reps_done: string | number | null
-}
-
-/** Parse reps_done which may be '8-12' style range or a single integer. */
-function parseReps(reps: string | number | null): number {
-  if (reps == null) return 0
-  if (typeof reps === 'number') return reps
-  const m = reps.match(/\d+/g)
-  if (!m || m.length === 0) return 0
-  // If it's a range "8-12", use the low end (conservative for PR detection).
-  return parseInt(m[0], 10)
-}
-
-function computeTonnage(ex: SessionExerciseInput): number {
-  const w = ex.weight_kg ?? 0
-  const s = ex.sets_done ?? 0
-  const r = parseReps(ex.reps_done)
-  if (w <= 0 || s <= 0 || r <= 0) return 0
-  return w * s * r
+  sets?: SessionSet[] | null
+  weight_kg?: number | null
+  sets_done?: number | null
+  reps_done?: string | number | null
 }
 
 /** Scan a newly-logged session's exercises, update PRs, and return all
@@ -59,7 +47,7 @@ export async function detectGigaDrills(
   const validById = new Map<string, { tonnage: number; input: SessionExerciseInput }>()
   for (const ex of exercises) {
     if (!ex.plan_exercise_id) continue
-    const tonnage = computeTonnage(ex)
+    const tonnage = computeExerciseTonnage(ex)
     if (tonnage <= 0) continue
     // If the same plan_exercise_id appears multiple times in a session (rare
     // but possible — different sets of the same lift), keep the max tonnage.

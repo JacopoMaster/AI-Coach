@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ExerciseChart } from '@/components/workouts/exercise-chart'
 import { formatDate } from '@/lib/utils'
+import { summarizeExercise } from '@/lib/workouts/tonnage'
 import Link from 'next/link'
 import { Play, ChevronDown, ChevronUp, Dumbbell, Trophy, History, LineChart } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -204,9 +205,7 @@ export default function WorkoutsPage() {
                                   <span className="text-muted-foreground">
                                     <span className="font-sans">Ultimo: </span>
                                     <span className="font-mono tabular-nums">
-                                      {lastLog.sets_done ?? '—'}×{lastLog.reps_done ?? '—'}
-                                      {lastLog.weight_kg ? ` @ ${lastLog.weight_kg}kg` : ''}
-                                      {lastLog.rpe ? ` RPE ${lastLog.rpe}` : ''}
+                                      {summarizeExercise(lastLog) || '—'}
                                     </span>
                                   </span>
                                 )}

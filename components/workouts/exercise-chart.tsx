@@ -18,7 +18,6 @@ interface ChartPoint {
   date: string
   actual: number
   target: number | null
-  rpe: number | null
 }
 
 interface Props {

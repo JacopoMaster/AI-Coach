@@ -5,6 +5,8 @@ import { detectGigaDrills } from '@/lib/gamification/check-giga-drill'
 import { levelFromTotalExp } from '@/lib/gamification/exp-curve'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
+import { computeExerciseTonnage, normalizeSets } from '@/lib/workouts/tonnage'
+import type { SessionSet } from '@/lib/types'
 
 function getCurrentWeek(startDate: string, durationWeeks: number): number {
   const start = new Date(startDate)
@@ -110,26 +112,41 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('session_exercises')
-      .select(`plan_exercise_id, sets_done, reps_done, weight_kg, session:workout_sessions!inner(date, user_id)`)
+      .select(`plan_exercise_id, sets, sets_done, reps_done, weight_kg, session:workout_sessions!inner(date, user_id)`)
       .in('plan_exercise_id', ids)
       .eq('session.user_id', user.id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // The "Copy from last time" hint surfaces a flat (sets/reps/weight)
+    // summary even when the row is stored in the new per-set format —
+    // pick the heaviest set as the representative payload.
     const result: Record<string, { sets_done: string; reps_done: string; weight_kg: string }> = {}
     const latestDates: Record<string, string> = {}
     for (const row of (data as any[] || [])) {
       const exId = row.plan_exercise_id
       const sessionObj = Array.isArray(row.session) ? row.session[0] : row.session
       const date = sessionObj?.date || ''
-      if (!latestDates[exId] || date > latestDates[exId]) {
-        result[exId] = {
+      if (latestDates[exId] && date <= latestDates[exId]) continue
+
+      const sets = normalizeSets(row.sets)
+      let summary: { sets_done: string; reps_done: string; weight_kg: string }
+      if (sets && sets.length > 0) {
+        const top = sets.reduce((a, b) => (b.weight > a.weight ? b : a))
+        summary = {
+          sets_done: String(sets.length),
+          reps_done: String(top.reps),
+          weight_kg: String(top.weight),
+        }
+      } else {
+        summary = {
           sets_done: row.sets_done != null ? String(row.sets_done) : '',
           reps_done: row.reps_done ?? '',
           weight_kg: row.weight_kg != null ? String(row.weight_kg) : '',
         }
-        latestDates[exId] = date
       }
+      result[exId] = summary
+      latestDates[exId] = date
     }
     return NextResponse.json(result)
   }
@@ -213,15 +230,23 @@ export async function GET(request: NextRequest) {
 
     const exerciseIds = (sameNameExercises || []).map((e: { id: string }) => e.id)
 
-    // 3. All session_exercises for those IDs (RLS guarantees user scope)
+    // 3. All session_exercises for those IDs (RLS guarantees user scope).
+    //    Pull both the legacy flat columns and the new `sets` JSONB so we
+    //    can render a unified chart across history.
     const { data: sessionExercises } = await supabase
       .from('session_exercises')
-      .select('weight_kg, reps_done, rpe, plan_exercise_id, session:workout_sessions(date)')
+      .select('weight_kg, reps_done, sets, plan_exercise_id, session:workout_sessions(date)')
       .in('plan_exercise_id', exerciseIds)
-      .not('weight_kg', 'is', null)
+
+    // Keep only rows that have *some* weight data — either flat or per-set.
+    const withWeight = (sessionExercises || []).filter((row) => {
+      const sets = normalizeSets((row as { sets?: unknown }).sets)
+      if (sets && sets.some((s) => s.weight > 0)) return true
+      return (row as { weight_kg: number | null }).weight_kg != null
+    })
 
     // Sort by session date ascending
-    const sorted = (sessionExercises || []).sort((a, b) => {
+    const sorted = withWeight.sort((a, b) => {
       const da = ((a as unknown as { session: { date: string } }).session?.date) ?? ''
       const db = ((b as unknown as { session: { date: string } }).session?.date) ?? ''
       return da.localeCompare(db)
@@ -259,20 +284,24 @@ export async function GET(request: NextRequest) {
       return Math.min(Math.floor(days / 7) + 1, activeMeso.duration_weeks)
     }
 
-    // 5. Build chart points
+    // 5. Build chart points. For per-set rows, surface the heaviest set's
+    //    weight (a working set is a better progression signal than an avg).
     const chartData = sorted.map((item) => {
-      const date = ((item as unknown as { session: { date: string } }).session?.date) ?? ''
+      const row = item as unknown as {
+        session: { date: string }
+        weight_kg: number | null
+        sets?: unknown
+      }
+      const date = row.session?.date ?? ''
       const d = new Date(date)
       const label = `${d.getDate()}/${d.getMonth() + 1}`
       const weekNum = getWeekForDate(date)
       const target = weekNum != null ? (targetByWeek.get(weekNum) ?? null) : null
-      return {
-        label,
-        date,
-        actual: item.weight_kg as number,
-        target,
-        rpe: (item as { rpe?: number | null }).rpe ?? null,
-      }
+      const sets = normalizeSets(row.sets)
+      const actual = sets && sets.length > 0
+        ? Math.max(...sets.map((s) => s.weight))
+        : (row.weight_kg as number)
+      return { label, date, actual, target }
     })
 
     return NextResponse.json({ exercise_name: exercise.name, chart_data: chartData })
@@ -408,10 +437,37 @@ export async function POST(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    if (exercises?.length) {
+    // Normalize the incoming exercises into the shape `session_exercises`
+    // expects. The new client always sends `sets: [{ reps, weight }]`; the
+    // offline replay queue may still send the legacy flat shape from older
+    // app versions, so we accept both.
+    type IncomingExercise = {
+      plan_exercise_id: string | null
+      sets?: SessionSet[] | null
+      sets_done?: number | null
+      reps_done?: string | null
+      weight_kg?: number | null
+      notes?: string | null
+    }
+
+    const incoming = (exercises ?? []) as IncomingExercise[]
+    const rowsToInsert = incoming.map((ex) => {
+      const sets = normalizeSets(ex.sets)
+      return {
+        session_id: session.id,
+        plan_exercise_id: ex.plan_exercise_id ?? null,
+        sets: sets, // null for legacy payloads — flat columns carry the data
+        sets_done: ex.sets_done ?? null,
+        reps_done: ex.reps_done ?? null,
+        weight_kg: ex.weight_kg ?? null,
+        notes: ex.notes ?? null,
+      }
+    })
+
+    if (rowsToInsert.length > 0) {
       const { error: exError } = await supabase
         .from('session_exercises')
-        .insert(exercises.map((ex: Record<string, unknown>) => ({ ...ex, session_id: session.id })))
+        .insert(rowsToInsert)
 
       if (exError) return NextResponse.json({ error: exError.message }, { status: 500 })
     }
@@ -420,26 +476,15 @@ export async function POST(request: NextRequest) {
     // Non-fatal: any error here MUST NOT break the save.
     let reward: Reward | null = null
     try {
-      const baseSessionExp = 100 + (exercises?.length ?? 0) * 15
-      // Tonnage = Σ weight × sets × reps. Ranges like "8-10" use the low end
-      // (conservative; matches Giga Drill detection in check-giga-drill.ts).
-      const sessionTonnage = ((exercises ?? []) as Array<{
-        weight_kg: number | null
-        sets_done: number | null
-        reps_done: string | number | null
-      }>).reduce((acc, ex) => {
-        const w = Number(ex.weight_kg ?? 0)
-        const s = Number(ex.sets_done ?? 0)
-        const repsRaw = ex.reps_done
-        let r = 0
-        if (typeof repsRaw === 'number') r = repsRaw
-        else if (typeof repsRaw === 'string') {
-          const m = repsRaw.match(/\d+/)
-          if (m) r = parseInt(m[0], 10)
-        }
-        if (w <= 0 || s <= 0 || r <= 0) return acc
-        return acc + w * s * r
-      }, 0)
+      const baseSessionExp = 100 + incoming.length * 15
+      // Tonnage = Σ across exercises of computeExerciseTonnage(ex). The
+      // helper picks the per-set sum when `sets` is present, otherwise
+      // falls back to the legacy weight×sets×reps formula. Same helper
+      // backs Giga Drill detection so the two stay in lock-step.
+      const sessionTonnage = incoming.reduce(
+        (acc, ex) => acc + computeExerciseTonnage(ex),
+        0
+      )
 
       reward = await awardExp(supabase, {
         userId: user.id,
@@ -447,7 +492,7 @@ export async function POST(request: NextRequest) {
         sourceId: session.id,
         baseExp: baseSessionExp,
         statTagged: 'forza',
-        rationale: `Sessione loggata (${exercises?.length ?? 0} esercizi)`,
+        rationale: `Sessione loggata (${incoming.length} esercizi)`,
         workoutTonnage: sessionTonnage,
       })
 
@@ -459,12 +504,7 @@ export async function POST(request: NextRequest) {
         user.id,
         currentLevel,
         session.id,
-        (exercises ?? []) as Array<{
-          plan_exercise_id: string | null
-          weight_kg: number | null
-          sets_done: number | null
-          reps_done: string | number | null
-        }>
+        incoming
       )
 
       for (const gd of gigaDrills) {
