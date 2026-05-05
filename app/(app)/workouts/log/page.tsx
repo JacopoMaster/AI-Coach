@@ -78,15 +78,33 @@ async function fetchSessionMeta(ids: string): Promise<{
 // definition + any active mesocycle progression target. Returns one
 // SetDraft per planned set, prefilled with the target weight/reps.
 function buildInitialSets(
-  planSets: number,
+  planSets: number | null | undefined,
   defaultReps: string,
   defaultWeight: string
 ): SetDraft[] {
-  const count = Math.max(1, Math.floor(planSets) || 1)
+  const raw = Number(planSets)
+  const count = Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : 1
   return Array.from({ length: count }, () => ({
     reps: defaultReps,
     weight: defaultWeight,
   }))
+}
+
+// Drafts from older (pre-per-set) versions of this page lack the `sets`
+// array — restoring them blindly causes `log.sets.map` to throw at render.
+// This validator drops any draft that doesn't match the new shape so we
+// fall through to a fresh init instead of crashing.
+function isValidDraft(d: unknown): d is WorkoutDraft {
+  if (!d || typeof d !== 'object') return false
+  const draft = d as Partial<WorkoutDraft>
+  if (!draft.selectedDay || typeof draft.selectedDay !== 'object') return false
+  if (!Array.isArray(draft.exerciseLogs)) return false
+  return draft.exerciseLogs.every(
+    (log) =>
+      log != null &&
+      typeof log === 'object' &&
+      Array.isArray((log as ExerciseLog).sets)
+  )
 }
 
 export default function WorkoutLogPage() {
@@ -113,12 +131,24 @@ export default function WorkoutLogPage() {
     const draftKey = Object.keys(localStorage).find((k) => k.startsWith(DRAFT_PREFIX))
     if (!draftKey) return
     try {
-      const draft: WorkoutDraft = JSON.parse(localStorage.getItem(draftKey) || '')
+      const parsed: unknown = JSON.parse(localStorage.getItem(draftKey) || '')
+      if (!isValidDraft(parsed)) {
+        // Stale draft from before the per-set refactor — discard.
+        localStorage.removeItem(draftKey)
+        return
+      }
+      const draft = parsed
       setSelectedDay(draft.selectedDay)
       setExerciseLogs(draft.exerciseLogs)
-      setCurrentExIdx(draft.currentExIdx)
-      setOverallNotes(draft.overallNotes)
-      setStep(draft.step)
+      setCurrentExIdx(
+        Number.isInteger(draft.currentExIdx) &&
+        draft.currentExIdx >= 0 &&
+        draft.currentExIdx < draft.exerciseLogs.length
+          ? draft.currentExIdx
+          : 0
+      )
+      setOverallNotes(typeof draft.overallNotes === 'string' ? draft.overallNotes : '')
+      setStep(draft.step === 'summary' ? 'summary' : 'log-exercises')
 
       const ids = (draft.selectedDay.exercises || []).map((ex) => ex.id).join(',')
       if (ids) {
@@ -162,27 +192,39 @@ export default function WorkoutLogPage() {
   async function selectDay(day: WorkoutPlanDay) {
     if (loadingDayId) return
 
-    // Check for an existing draft for this day
+    // Check for an existing draft for this day. Anything that doesn't
+    // match the per-set shape is treated as stale and rebuilt from scratch.
     const draftKey = `${DRAFT_PREFIX}${day.id}`
     const raw = localStorage.getItem(draftKey)
     if (raw) {
       try {
-        const draft: WorkoutDraft = JSON.parse(raw)
-        setSelectedDay(draft.selectedDay)
-        setExerciseLogs(draft.exerciseLogs)
-        setCurrentExIdx(draft.currentExIdx)
-        setOverallNotes(draft.overallNotes)
-        setStep(draft.step)
+        const parsed: unknown = JSON.parse(raw)
+        if (isValidDraft(parsed)) {
+          const draft = parsed
+          setSelectedDay(draft.selectedDay)
+          setExerciseLogs(draft.exerciseLogs)
+          setCurrentExIdx(
+            Number.isInteger(draft.currentExIdx) &&
+            draft.currentExIdx >= 0 &&
+            draft.currentExIdx < draft.exerciseLogs.length
+              ? draft.currentExIdx
+              : 0
+          )
+          setOverallNotes(typeof draft.overallNotes === 'string' ? draft.overallNotes : '')
+          setStep(draft.step === 'summary' ? 'summary' : 'log-exercises')
 
-        const ids = (day.exercises || []).map((ex) => ex.id).join(',')
-        if (ids) {
-          fetchSessionMeta(ids).then(({ notes, perf, progressionMap }) => {
-            setPreviousNotes(notes)
-            setLastPerformance(perf)
-            setProgressions(progressionMap)
-          })
+          const ids = (day.exercises || []).map((ex) => ex.id).join(',')
+          if (ids) {
+            fetchSessionMeta(ids).then(({ notes, perf, progressionMap }) => {
+              setPreviousNotes(notes)
+              setLastPerformance(perf)
+              setProgressions(progressionMap)
+            })
+          }
+          return
         }
-        return
+        // Stale shape — drop and fall through to fresh init.
+        localStorage.removeItem(draftKey)
       } catch {
         localStorage.removeItem(draftKey)
       }
@@ -238,10 +280,11 @@ export default function WorkoutLogPage() {
 
   function updateSetField(setIdx: number, field: keyof SetDraft, value: string) {
     setExerciseLogs((prev) => {
+      if (!prev[currentExIdx]) return prev
       const next = [...prev]
       const ex = { ...next[currentExIdx] }
-      const sets = ex.sets.map((s, i) => (i === setIdx ? { ...s, [field]: value } : s))
-      ex.sets = sets
+      const baseSets = Array.isArray(ex.sets) ? ex.sets : []
+      ex.sets = baseSets.map((s, i) => (i === setIdx ? { ...s, [field]: value } : s))
       next[currentExIdx] = ex
       return next
     })
@@ -249,12 +292,14 @@ export default function WorkoutLogPage() {
 
   function addSet() {
     setExerciseLogs((prev) => {
+      if (!prev[currentExIdx]) return prev
       const next = [...prev]
       const ex = { ...next[currentExIdx] }
-      const last = ex.sets[ex.sets.length - 1]
+      const baseSets = Array.isArray(ex.sets) ? ex.sets : []
+      const last = baseSets[baseSets.length - 1]
       // Pre-fill the new row with the previous set's values — almost always
       // what the user wants on a straight-set scheme.
-      ex.sets = [...ex.sets, last ? { ...last } : { reps: '', weight: '' }]
+      ex.sets = [...baseSets, last ? { ...last } : { reps: '', weight: '' }]
       next[currentExIdx] = ex
       return next
     })
@@ -262,10 +307,12 @@ export default function WorkoutLogPage() {
 
   function removeSet(setIdx: number) {
     setExerciseLogs((prev) => {
+      if (!prev[currentExIdx]) return prev
       const next = [...prev]
       const ex = { ...next[currentExIdx] }
-      if (ex.sets.length <= 1) return prev
-      ex.sets = ex.sets.filter((_, i) => i !== setIdx)
+      const baseSets = Array.isArray(ex.sets) ? ex.sets : []
+      if (baseSets.length <= 1) return prev
+      ex.sets = baseSets.filter((_, i) => i !== setIdx)
       next[currentExIdx] = ex
       return next
     })
@@ -273,6 +320,7 @@ export default function WorkoutLogPage() {
 
   function updateNotes(value: string) {
     setExerciseLogs((prev) => {
+      if (!prev[currentExIdx]) return prev
       const next = [...prev]
       next[currentExIdx] = { ...next[currentExIdx], notes: value }
       return next
@@ -281,11 +329,15 @@ export default function WorkoutLogPage() {
 
   function copyFromLastTime(prevPerf: LastPerf) {
     setExerciseLogs((prev) => {
+      if (!prev[currentExIdx]) return prev
       const next = [...prev]
       const ex = { ...next[currentExIdx] }
-      const setCount = prevPerf.sets_done
-        ? Math.max(1, parseInt(prevPerf.sets_done, 10) || ex.sets.length)
-        : ex.sets.length
+      const baseSets = Array.isArray(ex.sets) ? ex.sets : []
+      const fallbackCount = baseSets.length || 1
+      const parsedFromPerf = prevPerf.sets_done ? parseInt(prevPerf.sets_done, 10) : NaN
+      const setCount = Number.isFinite(parsedFromPerf) && parsedFromPerf > 0
+        ? Math.max(1, parsedFromPerf)
+        : fallbackCount
       const repsLowEnd = (() => {
         const m = (prevPerf.reps_done || '').match(/\d+/)
         return m ? m[0] : ''
@@ -329,7 +381,8 @@ export default function WorkoutLogPage() {
   async function saveSession() {
     setSaving(true)
     const exercises = exerciseLogs.map((log) => {
-      const cleanSets: SessionSet[] = log.sets
+      const rawSets = Array.isArray(log.sets) ? log.sets : []
+      const cleanSets: SessionSet[] = rawSets
         .map((s) => ({
           reps: s.reps ? parseInt(s.reps, 10) : NaN,
           weight: s.weight ? parseFloat(s.weight) : NaN,
@@ -470,6 +523,25 @@ export default function WorkoutLogPage() {
   if (step === 'log-exercises') {
     const log = exerciseLogs[currentExIdx]
     const total = exerciseLogs.length
+    // Defensive: an out-of-range currentExIdx, an empty exercise list, or
+    // a draft mid-rehydration could leave `log` undefined. Bounce back to
+    // day selection rather than throwing in render.
+    if (!log) {
+      return (
+        <div className="p-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => setStep('select-day')}>
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <h1 className="text-xl font-bold">Nessun esercizio</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Seleziona di nuovo il giorno per iniziare.
+          </p>
+        </div>
+      )
+    }
+    const sets = Array.isArray(log.sets) ? log.sets : []
     const isLast = currentExIdx === total - 1
     const prog = progressions[log.plan_exercise_id]
     const prevPerf = lastPerformance[log.plan_exercise_id]
@@ -546,7 +618,7 @@ export default function WorkoutLogPage() {
                 <span>Reps</span>
                 <span />
               </div>
-              {log.sets.map((s, i) => (
+              {sets.map((s, i) => (
                 <div
                   key={i}
                   className="grid grid-cols-[3rem_1fr_1fr_2rem] items-center gap-2"
@@ -574,7 +646,7 @@ export default function WorkoutLogPage() {
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
                     onClick={() => removeSet(i)}
-                    disabled={log.sets.length <= 1}
+                    disabled={sets.length <= 1}
                     aria-label="Rimuovi serie"
                   >
                     <Minus className="h-4 w-4" />
@@ -644,7 +716,8 @@ export default function WorkoutLogPage() {
         <CardContent className="p-0">
           <div className="divide-y">
             {exerciseLogs.map((log, i) => {
-              const filled = log.sets.filter((s) => s.weight && s.reps)
+              const logSets = Array.isArray(log.sets) ? log.sets : []
+              const filled = logSets.filter((s) => s.weight && s.reps)
               return (
                 <div key={i} className="px-6 py-3">
                   <p className="font-medium text-sm">{log.name}</p>
