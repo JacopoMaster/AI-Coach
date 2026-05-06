@@ -110,29 +110,28 @@ const CoachPayloadSchema = z.object({
   body: z.string().min(1).max(120),
 })
 
-function buildCoachSystemPrompt(selectedCharacter: string): string {
-  return `Sei il "Multiverse Coach". Parli italiano.
+function buildCoachSystemPrompt(selectedCharacter: Character): string {
+  return `Sei ${selectedCharacter.name}.
+IDENTITÀ E COMPORTAMENTO:
+${selectedCharacter.lore}
 
-Il tuo ruolo: sei ${selectedCharacter}. Scrivi il messaggio assumendo rigorosamente la sua identità, i suoi modi di dire, le sue iconiche frasi e la sua attitudine. Non interpretare nessun altro personaggio.
+VINCOLI LESSICALI ASSOLUTI (PENALITÀ CRITICA):
+È severamente vietato e fuori personaggio usare parole terrene legate al fitness come 'palestra', 'workout', 'allenamento', 'scheda', 'ripetizioni', 'coach', 'esercizio'. Se usi la parola 'palestra' o simili rompi istantaneamente l'immersione. Sostituiscile SEMPRE con le metafore del tuo universo (es. 'campo di battaglia', 'dungeon', 'missione', 'scontro', 'sfida').
 
-CONTESTO TEMPORALE: la notifica arriva tra le 17:00 e le 18:00. La giornata di lavoro/studio sta finendo, è il momento di scendere in palestra.
-
-TONO PER CATEGORIA (adatta in base all'opera del tuo personaggio):
-- Shonen / Epic (One Piece, Dragon Ball, Naruto, Bleach, MHA, HxH, Gurren Lagann, AoT, JoJo): superamento dei limiti, risvegli e trasformazioni (Gear 5, Bankai, Energia a Spirale, Stand, Nen, Quirk).
-- JRPG (FF, Persona, KH, Nier, DQ, Zelda, Yakuza, Layton): Level Up, Heat Action, Confidant/Social Link, Boss Fight, Save Point, enigmi.
-- Comedy (Gintama, Konosuba, Lovely Complex, Toradora): ironia tagliente, sarcasmo sulla pigrizia, rotture della quarta parete.
-- Mecha / Sci-Fi (Gundam, Eureka Seven, Evangelion, Code Geass, Mirai Nikki, Re:Zero): terminologia tecnica, sincronizzazione, manutenzione del "frame" (il corpo come unità da tenere efficiente).
-
-Parla in PRIMA persona, inizia subito in character — niente preamboli tipo "Ciao, sono...".
+GRAMMATICA E LORE (GLOSSARIO):
+Usa un italiano impeccabile e nativo. Rispetta rigorosamente il genere dei termini iconici.
+- CORRETTO: 'La tua Spirale' (Femminile), 'L'Energia a Spirale' (Femminile), 'Il Giga Drill' (Maschile).
+- ERRATO: 'Il tuo spirale', 'Lo spirale'.
+Non sbagliare MAI il genere di queste parole. Mantieni la risposta breve, incisiva e adatta a una notifica push da leggere al volo.
 
 VINCOLI DI OUTPUT (rigidi):
 - SOLO JSON valido, nessun testo prima o dopo, nessun markdown.
-- "character": copia-incolla esatto di "${selectedCharacter}".
+- "character": copia-incolla esatto di "${selectedCharacter.name}".
 - "title": frase d'urto, max 60 caratteri.
 - "body": chiamata all'azione esplicita, max 120 caratteri.
 - ZERO emoji, ZERO hashtag.
 
-Schema: {"character":"${selectedCharacter}","title":"...","body":"..."}`
+Schema: {"character":"${selectedCharacter.name}","title":"...","body":"..."}`
 }
 
 function buildCoachUserPrompt(anomaly: AnomalyType): string {
@@ -155,7 +154,7 @@ interface CoachAIPayload {
   body: string
 }
 
-const SYSTEM_PLACEHOLDER: Character = { name: 'Il Sistema', tags: [] }
+const SYSTEM_PLACEHOLDER: Character = { name: 'Il Sistema', tags: [], lore: '' }
 
 async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayload> {
   const fallback: CoachAIPayload =
@@ -177,7 +176,7 @@ async function generateCoachPayload(anomaly: AnomalyType): Promise<CoachAIPayloa
     const ai = getAIProvider()
     const result = await ai.generateStructuredOutput(
       buildCoachUserPrompt(anomaly),
-      buildCoachSystemPrompt(selectedCharacter.name),
+      buildCoachSystemPrompt(selectedCharacter),
       CoachPayloadSchema,
       400,
       HAIKU_MODEL

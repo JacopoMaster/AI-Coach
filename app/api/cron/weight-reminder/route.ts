@@ -47,7 +47,7 @@ interface CoachAIPayload {
   body: string
 }
 
-const SYSTEM_PLACEHOLDER: Character = { name: 'Il Sistema', tags: [] }
+const SYSTEM_PLACEHOLDER: Character = { name: 'Il Sistema', tags: [], lore: '' }
 
 // ─── Configurazione ─────────────────────────────────────────────────────────
 
@@ -79,23 +79,28 @@ const CoachPayloadSchema = z.object({
   body: z.string().min(1).max(120),
 })
 
-function buildSystemPrompt(selectedCharacter: string): string {
-  return `Sei il "Multiverse Coach". Parli italiano.
+function buildSystemPrompt(selectedCharacter: Character): string {
+  return `Sei ${selectedCharacter.name}.
+IDENTITÀ E COMPORTAMENTO:
+${selectedCharacter.lore}
 
-Il tuo ruolo: sei ${selectedCharacter}. Scrivi il messaggio assumendo rigorosamente la sua identità, i suoi modi di dire, le sue iconiche frasi e la sua attitudine. Non interpretare nessun altro personaggio.
+VINCOLI LESSICALI ASSOLUTI (PENALITÀ CRITICA):
+È severamente vietato e fuori personaggio usare parole terrene legate al fitness come 'palestra', 'workout', 'allenamento', 'scheda', 'ripetizioni', 'coach', 'esercizio'. Se usi la parola 'palestra' o simili rompi istantaneamente l'immersione. Sostituiscile SEMPRE con le metafore del tuo universo (es. 'campo di battaglia', 'dungeon', 'missione', 'scontro', 'sfida').
 
-CONTESTO: è sabato mattina. L'utente questa settimana NON si è ancora pesato. La pesata settimanale è l'unica missione che gli manca per chiudere la Perfect Week e mantenere la streak della Spirale. Domani (domenica a mezzanotte) la streak si resetta.
-
-OBIETTIVO: convincerlo a salire sulla bilancia OGGI. Tono incalzante, mai sconfitto. Riferimento al mondo del personaggio o alla sua storia.
+GRAMMATICA E LORE (GLOSSARIO):
+Usa un italiano impeccabile e nativo. Rispetta rigorosamente il genere dei termini iconici.
+- CORRETTO: 'La tua Spirale' (Femminile), 'L'Energia a Spirale' (Femminile), 'Il Giga Drill' (Maschile).
+- ERRATO: 'Il tuo spirale', 'Lo spirale'.
+Non sbagliare MAI il genere di queste parole. Mantieni la risposta breve, incisiva e adatta a una notifica push da leggere al volo.
 
 VINCOLI DI OUTPUT (rigidi):
 - SOLO JSON valido, nessun testo prima o dopo, nessun markdown.
-- "character": copia-incolla esatto di "${selectedCharacter}".
+- "character": copia-incolla esatto di "${selectedCharacter.name}".
 - "title": frase d'urto, max 60 caratteri.
 - "body": chiamata all'azione esplicita sulla pesata di oggi, max 120 caratteri.
 - ZERO emoji, ZERO hashtag.
 
-Schema: {"character":"${selectedCharacter}","title":"...","body":"..."}`
+Schema: {"character":"${selectedCharacter.name}","title":"...","body":"..."}`
 }
 
 const USER_PROMPT = `È sabato mattina, l'utente non si è ancora pesato questa settimana. Genera la notifica push: deve farlo salire sulla bilancia OGGI per completare la missione settimanale e salvare la streak.`
@@ -113,7 +118,7 @@ async function generatePayload(): Promise<CoachAIPayload> {
     const ai = getAIProvider()
     const result = await ai.generateStructuredOutput(
       USER_PROMPT,
-      buildSystemPrompt(selectedCharacter.name),
+      buildSystemPrompt(selectedCharacter),
       CoachPayloadSchema,
       400,
       HAIKU_MODEL
