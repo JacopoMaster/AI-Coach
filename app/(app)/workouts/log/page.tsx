@@ -10,10 +10,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { today } from '@/lib/utils'
 import { enqueue, SYNC_TAG } from '@/lib/offline/sync-queue'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Check, Loader2, Plus, Minus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Loader2, Plus, Minus, Timer, X } from 'lucide-react'
 import { fireCutscene, firePerfectWeek } from '@/lib/gamification/spiral-events'
 import type { Reward } from '@/lib/gamification/types'
 import type { CutscenePayload } from '@/components/gamification/UniversalCutscene'
+import SpiralTimer from '@/components/workouts/spiral-timer'
 
 // Per-set draft state — strings so empty inputs don't coerce to NaN.
 type SetDraft = { reps: string; weight: string }
@@ -123,6 +124,10 @@ export default function WorkoutLogPage() {
   const [toast, setToast] = useState<{ msg: string; tone: 'success' | 'warning' | 'error' } | null>(
     null
   )
+  // Rest timer overlay. The SpiralTimer below stays mounted for the whole
+  // log-exercises step — toggling `timerOpen` only flips visibility, so the
+  // countdown keeps ticking when the user dismisses it to log the next set.
+  const [timerOpen, setTimerOpen] = useState(false)
 
   // Restore any existing draft on mount (skip if day_id param — plan effect handles it)
   useEffect(() => {
@@ -695,6 +700,48 @@ export default function WorkoutLogPage() {
             <ChevronRight className="h-4 w-4" />
           </Button>
         )}
+
+        {/* Floating timer trigger — always visible during set logging. */}
+        {!timerOpen && (
+          <button
+            type="button"
+            onClick={() => setTimerOpen(true)}
+            aria-label="Apri timer recupero"
+            className="fixed bottom-24 right-4 z-40 h-14 w-14 rounded-full bg-emerald-500 text-black shadow-lg shadow-emerald-500/40 hover:bg-emerald-400 active:scale-95 transition flex items-center justify-center"
+            style={{ boxShadow: '0 0 20px rgba(16,185,129,0.5)' }}
+          >
+            <Timer className="h-6 w-6" />
+          </button>
+        )}
+
+        {/*
+          Always-mounted overlay: SpiralTimer stays in the React tree for the
+          whole log-exercises step so the countdown keeps running while the
+          user closes the overlay to log the next set. We toggle visibility
+          via opacity + pointer-events instead of conditional rendering.
+        */}
+        <div
+          className={`fixed inset-0 z-50 transition-opacity duration-200 ${
+            timerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+          aria-hidden={!timerOpen}
+        >
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setTimerOpen(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 top-0 sm:inset-4 sm:rounded-2xl overflow-hidden border border-emerald-500/20 shadow-2xl">
+            <SpiralTimer />
+            <button
+              type="button"
+              onClick={() => setTimerOpen(false)}
+              aria-label="Chiudi timer"
+              className="absolute top-4 right-4 z-10 h-10 w-10 rounded-full border border-emerald-500/40 bg-black/40 text-emerald-200 hover:bg-emerald-500/10 hover:border-emerald-400 transition flex items-center justify-center"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
