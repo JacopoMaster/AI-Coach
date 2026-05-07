@@ -104,15 +104,26 @@ export async function awardExp(
   }
 
   // 1. Load current stats (also serves as existence check).
-  const { data: stats } = await supabase
+  const { data: stats, error: statsErr } = await supabase
     .from('user_stats')
     .select('*')
     .eq('user_id', userId)
     .single<UserStats>()
 
+  // PGRST116 = "no rows returned" — handled below; anything else is a real
+  // failure (RLS, network, ...) and must be visible in the logs.
+  if (statsErr && (statsErr as { code?: string }).code !== 'PGRST116') {
+    console.error('[gamification] load user_stats failed:', statsErr)
+  }
+
   if (!stats) {
     // Trigger should have seeded, but handle defensively.
-    await supabase.from('user_stats').insert({ user_id: userId })
+    const { error: seedErr } = await supabase
+      .from('user_stats')
+      .insert({ user_id: userId })
+    if (seedErr) {
+      console.error('[gamification] seed user_stats failed:', seedErr)
+    }
     return { ...ZERO_REWARD, rationale: 'user_stats seeded' }
   }
 
@@ -137,6 +148,13 @@ export async function awardExp(
   if (histErr) {
     // 23505 = unique violation → already awarded, no-op.
     if ((histErr as { code?: string }).code === '23505') return ZERO_REWARD
+    console.error(
+      '[gamification] exp_history insert failed (source=%s, source_id=%s, code=%s):',
+      source,
+      resolvedSourceId,
+      (histErr as { code?: string }).code,
+      histErr
+    )
     throw histErr
   }
 
@@ -178,7 +196,14 @@ export async function awardExp(
     update.total_tonnage = newTotalTonnage
   }
 
-  await supabase.from('user_stats').update(update).eq('user_id', userId)
+  const { error: updateErr } = await supabase
+    .from('user_stats')
+    .update(update)
+    .eq('user_id', userId)
+  if (updateErr) {
+    console.error('[gamification] user_stats update failed:', updateErr)
+    throw updateErr
+  }
 
   // 4. Queue cinematic events for new tier/stage/pierce transitions.
   const events: Array<{
@@ -225,7 +250,13 @@ export async function awardExp(
     })
   }
   if (events.length > 0) {
-    await supabase.from('spiral_evolution_log').insert(events)
+    const { error: evErr } = await supabase
+      .from('spiral_evolution_log')
+      .insert(events)
+    if (evErr) {
+      // Cinematic events are nice-to-have; log but don't break EXP flow.
+      console.error('[gamification] spiral_evolution_log insert failed:', evErr)
+    }
   }
 
   // 5. Achievements — event-driven (one-shots) + metric-driven (progress bars).
