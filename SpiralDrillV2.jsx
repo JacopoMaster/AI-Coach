@@ -1,44 +1,11 @@
-'use client'
+import { useState } from "react";
 
 /**
- * SpiralDrill — Gurren Lagann × Kill la Kill (V2)
+ * SpiralDrill — Gurren Lagann × Kill la Kill (v7, fixed)
  * 11 TIER di escalation. T11 = Super Tengen Toppa Gurren Lagann.
- *
- * Driven by `level`. Tier derived via `getTier`. The `transform-origin` on
- * the tilt classes is `center` (not `center bottom`) — bottom-pivot rotation
- * drifts mass to the upper-right and breaks justify-center in the parent.
  */
 
-interface Aura {
-  color: string
-  opacity: number
-  size: number
-}
-
-interface Tier {
-  id: number
-  minLevel: number
-  label: string
-  bodyGrad: string
-  grooveBase: string
-  grooveMid: string
-  grooveHi: string
-  rim: string
-  tipGlow: string | null
-  speed: number
-  aura: Aura | null
-  crossStars: number
-  particles: number
-  rays: number
-  shockRing: boolean
-  lightning: boolean
-  cosmic: boolean
-  megaForm: boolean
-  shadowColor: string | null
-  labelColor: string
-}
-
-const TIERS: Tier[] = [
+const TIERS = [
   { id: 1, minLevel: 1, label: "Standard Drill",
     bodyGrad: "steel", grooveBase: "#0a0a0a", grooveMid: "#6a6a6a", grooveHi: "#f0f0f0",
     rim: "#2b2b2b", tipGlow: null, speed: 0.6,
@@ -128,27 +95,18 @@ const TIERS: Tier[] = [
     shadowColor: "rgba(255, 255, 255, 1)",
     labelColor: "text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-white to-yellow-200",
   },
-]
+];
 
-function getTier(level: number): Tier {
-  let t = TIERS[0]
-  for (const tier of TIERS) if (level >= tier.minLevel) t = tier
-  return t
+function getTier(level) {
+  let t = TIERS[0];
+  for (const tier of TIERS) if (level >= tier.minLevel) t = tier;
+  return t;
 }
 
 // ─── Sotto-componenti ────────────────────────────────────────────────────────
 
-interface CrossStarProps {
-  cx: number
-  cy: number
-  size: number
-  color: string
-  delay?: number
-  duration?: number
-}
-
-function CrossStar({ cx, cy, size, color, delay = 0, duration = 2 }: CrossStarProps) {
-  const s = size
+function CrossStar({ cx, cy, size, color, delay = 0, duration = 2 }) {
+  const s = size;
   return (
     <g
       transform={`translate(${cx} ${cy})`}
@@ -167,28 +125,20 @@ function CrossStar({ cx, cy, size, color, delay = 0, duration = 2 }: CrossStarPr
         opacity="0.9"
       />
     </g>
-  )
+  );
 }
 
-interface ParticlesProps {
-  count: number
-  color: string
-  cxCenter?: number
-  cyCenter?: number
-  radius?: number
-}
-
-function Particles({ count, color, cxCenter = 100, cyCenter = 160, radius = 120 }: ParticlesProps) {
+function Particles({ count, color, cxCenter = 100, cyCenter = 160, radius = 120 }) {
   return (
     <g>
       {Array.from({ length: count }).map((_, i) => {
-        const angle = (i / count) * Math.PI * 2
-        const seed = ((i * 9301 + 49297) % 233280) / 233280
-        const r = radius * (0.7 + seed * 0.4)
-        const x = cxCenter + Math.cos(angle) * r
-        const y = cyCenter + Math.sin(angle) * r * 0.9
-        const delay = (i / count) * 2
-        const size = 1 + seed * 2
+        const angle = (i / count) * Math.PI * 2;
+        const seed = ((i * 9301 + 49297) % 233280) / 233280; // pseudo-random deterministico
+        const r = radius * (0.7 + seed * 0.4);
+        const x = cxCenter + Math.cos(angle) * r;
+        const y = cyCenter + Math.sin(angle) * r * 0.9;
+        const delay = (i / count) * 2;
+        const size = 1 + seed * 2;
         return (
           <circle
             key={i}
@@ -196,25 +146,17 @@ function Particles({ count, color, cxCenter = 100, cyCenter = 160, radius = 120 
             fill={color}
             style={{ animation: `particle-float 2.4s ease-in-out ${delay}s infinite` }}
           />
-        )
+        );
       })}
     </g>
-  )
+  );
 }
 
-interface KineticRaysProps {
-  count: number
-  color: string
-  cxCenter?: number
-  cyCenter?: number
-  length?: number
-}
-
-function KineticRays({ count, color, cxCenter = 100, cyCenter = 160, length = 40 }: KineticRaysProps) {
+function KineticRays({ count, color, cxCenter = 100, cyCenter = 160, length = 40 }) {
   return (
     <g className="kinetic-rotate" style={{ transformOrigin: `${cxCenter}px ${cyCenter}px` }}>
       {Array.from({ length: count }).map((_, i) => {
-        const angle = (i / count) * 360
+        const angle = (i / count) * 360;
         return (
           <line
             key={i}
@@ -227,19 +169,13 @@ function KineticRays({ count, color, cxCenter = 100, cyCenter = 160, length = 40
             transform={`rotate(${angle} ${cxCenter} ${cyCenter})`}
             style={{ animation: `ray-pulse 1.2s ease-in-out ${(i / count) * 0.8}s infinite` }}
           />
-        )
+        );
       })}
     </g>
-  )
+  );
 }
 
-interface ShockRingProps {
-  color: string
-  cxCenter?: number
-  cyCenter?: number
-}
-
-function ShockRing({ color, cxCenter = 100, cyCenter = 160 }: ShockRingProps) {
+function ShockRing({ color, cxCenter = 100, cyCenter = 160 }) {
   return (
     <circle
       cx={cxCenter} cy={cyCenter} r="100"
@@ -249,15 +185,15 @@ function ShockRing({ color, cxCenter = 100, cyCenter = 160 }: ShockRingProps) {
       opacity="0.6"
       style={{ animation: "shock-expand 1.8s ease-out infinite" }}
     />
-  )
+  );
 }
 
-function Lightning({ color }: { color: string }) {
+function Lightning({ color }) {
   const bolts = [
     "M 100 30 L 80 60 L 110 80 L 85 120 L 120 150",
     "M 100 30 L 125 65 L 95 90 L 130 130 L 105 170",
     "M 100 30 L 70 50 L 100 85 L 75 110 L 95 150",
-  ]
+  ];
   return (
     <g style={{ animation: "lightning-flicker 0.15s steps(2) infinite" }}>
       {bolts.map((d, i) => (
@@ -274,16 +210,17 @@ function Lightning({ color }: { color: string }) {
         />
       ))}
     </g>
-  )
+  );
 }
 
 function CosmicBackground() {
+  // posizioni deterministiche per stelle
   const stars = Array.from({ length: 25 }).map((_, i) => {
-    const s1 = ((i * 7919) % 200)
-    const s2 = ((i * 6571) % 320)
-    const s3 = ((i * 4127) % 100) / 100
-    return { x: s1, y: s2, r: 0.5 + s3 * 1.5, op: 0.3 + s3 * 0.7, delay: s3 * 2 }
-  })
+    const s1 = ((i * 7919) % 200);
+    const s2 = ((i * 6571) % 320);
+    const s3 = ((i * 4127) % 100) / 100;
+    return { x: s1, y: s2, r: 0.5 + s3 * 1.5, op: 0.3 + s3 * 0.7, delay: s3 * 2 };
+  });
   return (
     <g>
       <g style={{ transformOrigin: "100px 160px", animation: "cosmic-spin 8s linear infinite" }}>
@@ -301,7 +238,7 @@ function CosmicBackground() {
         />
       ))}
     </g>
-  )
+  );
 }
 
 function GalaxyGears() {
@@ -312,7 +249,7 @@ function GalaxyGears() {
     { cx: 230, cy: 220, r: 20, dur: 11, color: "#ff6040", reverse: true },
     { cx: 100, cy: -30, r: 24, dur: 10, color: "#ffffff", reverse: false },
     { cx: -20, cy: 310, r: 16, dur: 8, color: "#a0ff40", reverse: true },
-  ]
+  ];
   return (
     <g>
       {galaxies.map((g, i) => (
@@ -331,7 +268,7 @@ function GalaxyGears() {
         </g>
       ))}
     </g>
-  )
+  );
 }
 
 function MegaCross() {
@@ -342,28 +279,28 @@ function MegaCross() {
       <circle cx="100" cy="160" r="30" fill="white" opacity="0.9" />
       <circle cx="100" cy="160" r="60" fill="url(#megaCrossGrad)" opacity="0.6" />
     </g>
-  )
+  );
 }
 
 function GalaxyBelt() {
-  const count = 24
+  const count = 24;
   return (
     <g style={{ transformOrigin: "100px 160px", animation: "galaxy-belt-spin 20s linear infinite" }}>
       {Array.from({ length: count }).map((_, i) => {
-        const angle = (i / count) * Math.PI * 2
-        const r = 170
-        const x = 100 + Math.cos(angle) * r
-        const y = 160 + Math.sin(angle) * r * 0.95
-        const size = 1.5 + (i % 3)
+        const angle = (i / count) * Math.PI * 2;
+        const r = 170;
+        const x = 100 + Math.cos(angle) * r;
+        const y = 160 + Math.sin(angle) * r * 0.95;
+        const size = 1.5 + (i % 3);
         return (
           <g key={i}>
             <circle cx={x} cy={y} r={size * 2} fill="#ffcc40" opacity="0.3" />
             <circle cx={x} cy={y} r={size} fill="white" />
           </g>
-        )
+        );
       })}
     </g>
-  )
+  );
 }
 
 function SpaceDistortion() {
@@ -386,41 +323,38 @@ function SpaceDistortion() {
         />
       ))}
     </g>
-  )
+  );
 }
 
 // ─── Principale ──────────────────────────────────────────────────────────────
 
-interface SpiralDrillProps {
-  level?: number
-}
+export default function SpiralDrill({ level = 1 }) {
+  const [demoLevel, setDemoLevel] = useState(level);
+  const tier = getTier(demoLevel);
 
-export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
-  const tier = getTier(level)
+  const TIP_Y = 20;
+  const BASE_Y = 300;
+  const BASE_HALF_WIDTH = 78;
+  const CX = 100;
 
-  const TIP_Y = 20
-  const BASE_Y = 300
-  const BASE_HALF_WIDTH = 78
-  const CX = 100
-
-  const bodyGradientId = `bodyGrad_${tier.bodyGrad}`
-  const bodyFill = `url(#${bodyGradientId})`
+  const bodyGradientId = `bodyGrad_${tier.bodyGrad}`;
+  const bodyFill = `url(#${bodyGradientId})`;
 
   const buildStrands = () => {
-    const turns = 14
-    const totalHeight = BASE_Y - TIP_Y
-    const step = totalHeight / turns
-    const strands: string[] = []
+    const turns = 14;
+    const totalHeight = BASE_Y - TIP_Y;
+    const step = totalHeight / turns;
+    const strands = [];
     for (let i = 0; i < turns; i++) {
-      const yTop = TIP_Y + i * step
-      const yBot = yTop + step
-      const wTop = ((yTop - TIP_Y) / totalHeight) * BASE_HALF_WIDTH
-      const wBot = ((yBot - TIP_Y) / totalHeight) * BASE_HALF_WIDTH
-      strands.push(`M ${CX - wTop} ${yTop} L ${CX + wBot} ${yBot}`)
+      const yTop = TIP_Y + i * step;
+      const yBot = yTop + step;
+      const wTop = ((yTop - TIP_Y) / totalHeight) * BASE_HALF_WIDTH;
+      const wBot = ((yBot - TIP_Y) / totalHeight) * BASE_HALF_WIDTH;
+      strands.push(`M ${CX - wTop} ${yTop} L ${CX + wBot} ${yBot}`);
     }
-    return strands
-  }
-  const strands = buildStrands()
+    return strands;
+  };
+  const strands = buildStrands();
 
   const crossStarPositions = [
     { cx: 40, cy: 60, size: 12, delay: 0 },
@@ -439,25 +373,25 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
     { cx: -10, cy: 60, size: 12, delay: 0.15 },
     { cx: 215, cy: 300, size: 15, delay: 1.1 },
     { cx: 130, cy: -20, size: 13, delay: 0.55 },
-  ].slice(0, tier.crossStars)
+  ].slice(0, tier.crossStars);
 
   const dropShadow = tier.shadowColor
     ? tier.megaForm
       ? `drop-shadow(0 0 10px ${tier.shadowColor}) drop-shadow(0 0 30px ${tier.shadowColor}) drop-shadow(0 0 60px #ffcc40)`
       : `drop-shadow(0 0 6px ${tier.shadowColor}) drop-shadow(0 0 18px ${tier.shadowColor})`
-    : "none"
+    : "none";
 
-  // Inietto la velocità delle strand via blocco <style> scoped, non via custom prop.
+  // Inietto la velocità delle strand via blocco <style> scoped, non via custom prop
   const strandStyle = `
     .strand-main-${tier.id} { animation: strand-flow ${tier.speed}s linear infinite; }
     .strand-hl-${tier.id}   { animation: strand-flow-fast ${tier.speed}s linear infinite; }
-  `
+  `;
 
   const tiltClass = tier.megaForm
     ? "drill-tilt-mega"
     : tier.id >= 9
     ? "drill-tilt-shake"
-    : "drill-tilt"
+    : "drill-tilt";
 
   const containerBg = tier.megaForm
     ? `radial-gradient(circle at 30% 30%, rgba(255,204,64,0.25) 0%, transparent 40%),
@@ -466,10 +400,10 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
        linear-gradient(180deg, #000015 0%, #1a0030 50%, #000015 100%)`
     : tier.aura
     ? `radial-gradient(circle at 50% 75%, ${tier.aura.color}20 0%, transparent 60%)`
-    : "transparent"
+    : "transparent";
 
   return (
-    <>
+    <div className="w-full flex flex-col items-center gap-8">
       <style>{`
         @keyframes strand-flow {
           from { stroke-dashoffset: 0; }
@@ -563,9 +497,9 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
         .tip-star {
           animation: tip-star-spin 2s ease-in-out infinite;
         }
-        /* Orbita delle stelle satellite attorno alla punta. Le 4 animazioni
-           hanno raggi e velocità diversi così non sembrano un cerchio
-           sincronizzato ma un piccolo sistema caotico-ordinato. */
+        /* Orbita delle stelle satellite attorno alla punta.
+           Le 4 animazioni hanno raggi e velocità diversi così non sembrano
+           un cerchio sincronizzato ma un piccolo sistema caotico-ordinato. */
         @keyframes tip-orbit-a {
           from { transform: rotate(0deg) translateX(22px) rotate(0deg); }
           to   { transform: rotate(360deg) translateX(22px) rotate(-360deg); }
@@ -588,26 +522,23 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
         .tip-orbit-d { animation: tip-orbit-d 5.5s linear infinite; }
         .spiral-shine { animation: shine-pulse 1.8s ease-in-out infinite; }
         .aura-node { animation: aura-pulse 2.2s ease-in-out infinite; transform-origin: center; }
-        /* Pivot moved from center-bottom to center so the 30deg tilt rotates
-         * around the SVG geometric middle — bottom pivot drifts mass to the
-         * upper-right and breaks justify-center in the parent. */
         .drill-tilt {
           transform: rotate(30deg);
-          transform-origin: center;
+          transform-origin: center bottom;
         }
         .drill-tilt-shake {
           animation: chromatic-shake 0.08s steps(2) infinite;
-          transform-origin: center;
+          transform-origin: center bottom;
         }
         .drill-tilt-mega {
           animation: mega-tilt-shake 0.2s ease-in-out infinite;
-          transform-origin: center;
+          transform-origin: center bottom;
         }
         ${strandStyle}
       `}</style>
 
       <div
-        className="h-[30rem] w-full flex items-center justify-center relative rounded-xl overflow-hidden"
+        className="h-[30rem] w-full flex items-end justify-center relative rounded-xl overflow-hidden"
         style={{
           background: containerBg,
           backgroundSize: tier.megaForm ? "200% 200%, 200% 200%, 200% 200%, 100% 100%" : "auto",
@@ -799,10 +730,11 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
                 />
               </g>
 
-              {/* Satelliti che orbitano attorno alla punta. Appaiono dai tier
-                  medi in su. Ogni satellite è in un <g> con transform-origin
-                  sulla punta, così l'animazione di rotazione+translate li fa
-                  girare attorno a quel punto con raggi e velocità diversi. */}
+              {/* Satelliti che orbitano attorno alla punta.
+                  Appaiono progressivamente dai tier medi in su.
+                  Ogni satellite è in un <g> con transform-origin sulla punta,
+                  così l'animazione di rotazione+translate li fa girare attorno
+                  a quel punto con raggi e velocità diversi. */}
               {tier.id >= 7 && (
                 <g style={{ transformOrigin: `${CX}px ${TIP_Y}px` }}>
                   <g style={{ transformOrigin: `${CX}px ${TIP_Y}px` }} className="tip-orbit-a">
@@ -848,6 +780,49 @@ export function SpiralDrill({ level = 1 }: SpiralDrillProps) {
           ))}
         </svg>
       </div>
-    </>
-  )
+
+      {/* Controlli */}
+      <div className="flex flex-col items-center gap-3 w-96 bg-zinc-900/80 backdrop-blur p-5 rounded-xl border border-zinc-700">
+        <div className="flex items-baseline justify-between w-full">
+          <span className="text-zinc-400 text-xs uppercase tracking-[0.2em]">Spiral Power</span>
+          <span className={`font-mono text-3xl font-bold ${tier.labelColor}`}>
+            {demoLevel.toString().padStart(3, "0")}
+          </span>
+        </div>
+        <input
+          type="range"
+          min="1"
+          max="200"
+          value={demoLevel}
+          onChange={(e) => setDemoLevel(Number(e.target.value))}
+          className="w-full accent-amber-500"
+        />
+        <div className="flex justify-between w-full text-[10px] font-mono text-zinc-500">
+          <span>1</span><span>50</span><span>100</span><span>150</span><span>200</span>
+        </div>
+        <div className="flex items-center justify-between w-full pt-2 border-t border-zinc-800">
+          <span className="text-zinc-500 text-xs font-mono">TIER {tier.id}/11</span>
+          <span className={`text-sm font-mono font-bold uppercase tracking-wider ${tier.labelColor}`}>
+            {tier.label}
+          </span>
+        </div>
+        <div className="flex gap-1 w-full pt-1">
+          {TIERS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setDemoLevel(t.minLevel)}
+              className={`flex-1 h-1.5 rounded-full transition-all ${
+                demoLevel >= t.minLevel
+                  ? t.id === 11
+                    ? "bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-300"
+                    : "bg-amber-400"
+                  : "bg-zinc-700"
+              }`}
+              title={`T${t.id}: ${t.label} (lv ${t.minLevel})`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }

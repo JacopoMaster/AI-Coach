@@ -16,6 +16,12 @@ DROP POLICY IF EXISTS "Users insert own exp history" ON exp_history;
 CREATE POLICY "Users insert own exp history" ON exp_history
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+-- DELETE policy backs the /api/admin/hard-reset route. Without it, RLS would
+-- silently filter every row out of the DELETE and the call would no-op.
+DROP POLICY IF EXISTS "Users delete own exp history" ON exp_history;
+CREATE POLICY "Users delete own exp history" ON exp_history
+  FOR DELETE USING (auth.uid() = user_id);
+
 
 -- ─── 2. user_stats — defensive seed inside awardExp() ───────────────────────
 -- The on_user_created_init_stats trigger seeds rows via SECURITY DEFINER, but
@@ -47,6 +53,11 @@ CREATE POLICY "Users update own PRs" ON personal_records
 DROP POLICY IF EXISTS "Users insert own unlocks" ON user_achievements;
 CREATE POLICY "Users insert own unlocks" ON user_achievements
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- DELETE policy backs the /api/admin/hard-reset route.
+DROP POLICY IF EXISTS "Users delete own unlocks" ON user_achievements;
+CREATE POLICY "Users delete own unlocks" ON user_achievements
+  FOR DELETE USING (auth.uid() = user_id);
 
 
 -- ─── 6. Diagnostics ─────────────────────────────────────────────────────────
