@@ -74,8 +74,8 @@ export function progressToNextLevel(totalExp: number): number {
 
 /** Core Drill tier (1..11). Drives the SVG variant of the avatar.
  *  Breakpoints must stay in sync with `TIERS[].minLevel` in
- *  `components/gamification/SpiralDrill.tsx`. */
-const TIER_BREAKPOINTS = [1, 10, 25, 45, 65, 85, 95, 100, 125, 175, 200] as const
+ *  `components/gamification/SpiralDrill.tsx` (V2). */
+const TIER_BREAKPOINTS = [1, 15, 30, 50, 70, 90, 100, 125, 150, 175, 200] as const
 
 export function tierFromLevel(level: number): number {
   for (let i = TIER_BREAKPOINTS.length - 1; i >= 0; i--) {
@@ -84,10 +84,19 @@ export function tierFromLevel(level: number): number {
   return 1
 }
 
-/** Spiral stage — drives the global theme palette. */
+/** Spiral stage — drives the global theme palette.
+ *  Boundaries coincide with tier breakpoints so every stage transition lands
+ *  on a tier-up. Two tiers per stage, except `tengen_toppa` which is T11 only.
+ *    terrestrial   1..29    T1 + T2
+ *    atmospheric  30..69    T3 + T4
+ *    orbital      70..99    T5 + T6
+ *    celestial   100..149   T7 + T8   (orbital → celestial = pierce_the_heavens)
+ *    galactic    150..199   T9 + T10
+ *    tengen_toppa 200+      T11
+ */
 export function stageFromLevel(level: number): SpiralStage {
-  if (level < 25) return 'terrestrial'
-  if (level < 60) return 'atmospheric'
+  if (level < 30) return 'terrestrial'
+  if (level < 70) return 'atmospheric'
   if (level < 100) return 'orbital'
   if (level < 150) return 'celestial'
   if (level < 200) return 'galactic'
@@ -95,15 +104,15 @@ export function stageFromLevel(level: number): SpiralStage {
 }
 
 const TIER_TITLES = [
-  'Lo Scavabuchi',                     // tier 1  (lvl 1..9)
-  'Ereditiere della Volontà',          // tier 2  (lvl 10..24)
-  'Membro della Brigata Dai-Gurren',   // tier 3  (lvl 25..44)
-  'Leader della Resistenza',           // tier 4  (lvl 45..64)
-  'Spirito Indomabile',                // tier 5  (lvl 65..84)
-  'Perforatore dei Cieli',             // tier 6  (lvl 85..94)
-  'Eroe della Galassia',               // tier 7  (lvl 95..99)
-  'Massa Critica',                     // tier 8  (lvl 100..124)
-  'Signore della Spirale',             // tier 9  (lvl 125..174)
+  'Lo Scavabuchi',                     // tier 1  (lvl 1..14)
+  'Ereditiere della Volontà',          // tier 2  (lvl 15..29)
+  'Membro della Brigata Dai-Gurren',   // tier 3  (lvl 30..49)
+  'Leader della Resistenza',           // tier 4  (lvl 50..69)
+  'Spirito Indomabile',                // tier 5  (lvl 70..89)
+  'Perforatore dei Cieli',             // tier 6  (lvl 90..99)
+  'Eroe della Galassia',               // tier 7  (lvl 100..124)
+  'Massa Critica',                     // tier 8  (lvl 125..149)
+  'Signore della Spirale',             // tier 9  (lvl 150..174)
   'Tengen Toppa',                      // tier 10 (lvl 175..199)
   'Super Tengen Toppa Gurren Lagann',  // tier 11 (lvl 200+)
 ] as const
