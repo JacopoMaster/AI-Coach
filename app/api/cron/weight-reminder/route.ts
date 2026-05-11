@@ -103,7 +103,7 @@ VINCOLI DI OUTPUT (rigidi):
 Schema: {"character":"${selectedCharacter.name}","title":"...","body":"..."}`
 }
 
-const USER_PROMPT = `È sabato mattina, l'utente non si è ancora pesato questa settimana. Genera la notifica push: deve farlo salire sulla bilancia OGGI per completare la missione settimanale e salvare la streak.`
+const USER_PROMPT = `È sabato mattina, l'utente non si è ancora pesato questa settimana. Genera la notifica push: deve farlo salire sulla bilancia OGGI per completare la missione settimanale e salvare la streak, FALLO CON LO STILE UNICO DEL PERSONAGGIO CHE LO MOTIVA A PRENDERSI CURA DI SÉ STESSO. Ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia, l'IMMERSIONE è TUTTO.`
 
 async function generatePayload(): Promise<CoachAIPayload> {
   const fallback: CoachAIPayload = {

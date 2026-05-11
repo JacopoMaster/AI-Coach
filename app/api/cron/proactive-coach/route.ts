@@ -140,8 +140,8 @@ function buildCoachUserPrompt(anomaly: AnomalyType): string {
 Genera la notifica push: deve farlo alzare dalla scrivania e portarlo in palestra ADESSO, prima che la sera si allunghi e perda lo slancio, ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia.`
   }
   // missed_workout
-  return `Sono circa le 17:30. Ieri l'utente ha saltato l'allenamento programmato. Oggi era teoricamente un giorno di recupero, ma il debito va pagato stasera.
-Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. Tono incalzante, mai sconfitto, ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia.`
+  return `Sono circa le 17:30. Ieri l'utente ha saltato l'allenamento programmato. Oggi era teoricamente un giorno di recupero, ma è ancora in tempo per rimediare. Devi essere motivante ma anche incalzante: niente scuse, è ora di recuperare. Se non si muove entro stasera, avrà perso l'opportunità di allenarsi per questa settimana.
+Genera la notifica push: richiamo all'ordine senza scuse, recupero immediato. Tono incalzante, mai sconfitto, ricordati di fare sempre un riferimento al mondo di appartenenza del personaggio o alla sua storia, l'IMMERSIONE è TUTTO.`
 }
 
 interface CoachAIPayload {
