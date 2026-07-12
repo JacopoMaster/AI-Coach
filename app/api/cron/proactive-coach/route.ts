@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import webpush, { type PushSubscription, type WebPushError } from 'web-push'
 import { z } from 'zod'
 import { getAIProvider } from '@/lib/ai/provider'
+import { AI_MODELS } from '@/lib/ai/models'
 import { isWaifu, pickRandomCharacter, type Character } from '@/lib/coach/roster'
 import { unlockMetricAchievements } from '@/lib/gamification/check-achievements'
 
@@ -93,7 +94,7 @@ const FALLBACK_MISSED = {
 // Spostiamo la random fuori dall'LLM perché Haiku, lasciato libero, tende a
 // pescare sempre i protagonisti più rappresentati nei dati di pre-training.
 
-const HAIKU_MODEL = 'claude-haiku-4-5'
+const HAIKU_MODEL = AI_MODELS.fast
 
 const CoachPayloadSchema = z.object({
   // L'AI deve riecheggiare ESATTAMENTE il character ricevuto in input.

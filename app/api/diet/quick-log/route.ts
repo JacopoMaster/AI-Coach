@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { awardExp } from '@/lib/gamification/award-exp'
+import { AI_MODELS } from '@/lib/ai/models'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
   let macros
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model: AI_MODELS.fast,
       max_tokens: 120,
       system:
         'Sei un assistente nutrizionale. Stima i macronutrienti da descrizioni di pasti. Rispondi SOLO con JSON valido.',

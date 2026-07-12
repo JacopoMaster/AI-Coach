@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { executeTool } from '@/lib/ai/tools'
 import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import { classifyIntent, getAIProvider } from '@/lib/ai/provider'
+import { AI_MODELS } from '@/lib/ai/models'
 
 // ─── Response schema ───────────────────────────────────────────────────────────
 // The LLM returns a free-text reply AND optionally declares write actions.
@@ -31,7 +32,7 @@ type CoachResponse = z.infer<typeof CoachResponseSchema>
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const HAIKU_MODEL = 'claude-haiku-4-5'
+const HAIKU_MODEL = AI_MODELS.fast
 
 // Static ack pool — avoids a repetitive single phrase while costing zero tokens
 const ACK_RESPONSES = [

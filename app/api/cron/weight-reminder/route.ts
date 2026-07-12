@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import webpush, { type PushSubscription, type WebPushError } from 'web-push'
 import { z } from 'zod'
 import { getAIProvider } from '@/lib/ai/provider'
+import { AI_MODELS } from '@/lib/ai/models'
 import { isWaifu, pickRandomCharacter, type Character } from '@/lib/coach/roster'
 import { unlockMetricAchievements } from '@/lib/gamification/check-achievements'
 
@@ -63,7 +64,7 @@ const FALLBACK_WEIGH_IN = {
   url: '/body',
 }
 
-const HAIKU_MODEL = 'claude-haiku-4-5'
+const HAIKU_MODEL = AI_MODELS.fast
 
 // ─── Generazione AI ──────────────────────────────────────────────────────────
 

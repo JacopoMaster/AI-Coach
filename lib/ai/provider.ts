@@ -12,6 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
+import { AI_MODELS } from './models'
 
 // ─── Shared constants ─────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export class AnthropicProvider implements AIProvider {
   ): Promise<T> {
     if (!schema) throw new Error('CRITICAL: Lo schema Zod passato al provider è undefined!')
     let lastError = ''
-    const model = modelOverride ?? process.env.ANTHROPIC_TEXT_MODEL ?? 'claude-sonnet-4-6'
+    const model = modelOverride ?? AI_MODELS.text
     const maxOutputTokens = modelOverride ? 4096 : 8192
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -163,7 +164,7 @@ export class AnthropicProvider implements AIProvider {
           : prompt
 
       const response = await this.client.messages.create({
-        model: process.env.ANTHROPIC_VISION_MODEL || 'claude-haiku-4-5',
+        model: AI_MODELS.vision,
         max_tokens: 1024,
         messages: [
           {
@@ -376,7 +377,7 @@ export function getAIProvider(): AIProvider {
 
 export type MessageIntent = 'simple_ack' | 'data_mutation' | 'complex_coach'
 
-const CLASSIFIER_MODEL = 'claude-haiku-4-5'
+const CLASSIFIER_MODEL = AI_MODELS.fast
 
 export async function classifyIntent(userMessage: string): Promise<MessageIntent> {
   if ((process.env.AI_PROVIDER ?? 'anthropic') !== 'anthropic') return 'complex_coach'
