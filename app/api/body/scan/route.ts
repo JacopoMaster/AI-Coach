@@ -5,11 +5,13 @@ import { getAIProvider } from '@/lib/ai/provider'
 import { awardExp } from '@/lib/gamification/award-exp'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
+import { getAppDate } from '@/lib/date/app-date'
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0]
+  // Europe/Rome calendar date (D002) — default date for a scanned measurement.
+  return getAppDate()
 }
 
 const VISION_PROMPT = `Analizza questa immagine di una bilancia smart FitDays ed estrai i valori di composizione corporea.

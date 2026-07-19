@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Achievement, AchievementMetricKey, ExpSource } from './types'
+import { getAppDate, getAppDateDaysAgo, getAppWeekStart, addDays } from '@/lib/date/app-date'
 
 interface CheckContext {
   userId: string
@@ -169,38 +170,30 @@ async function hasFourWeekIronWill(
   userId: string
 ): Promise<boolean> {
   // Pull the last 30 days of sessions — enough to evaluate 4 recent weeks.
-  const from = new Date()
-  from.setDate(from.getDate() - 30)
+  // Range + week buckets use the Europe/Rome calendar (D002).
   const { data } = await supabase
     .from('workout_sessions')
     .select('date')
     .eq('user_id', userId)
-    .gte('date', from.toISOString().split('T')[0])
+    .gte('date', getAppDateDaysAgo(30))
     .order('date', { ascending: false })
 
   if (!data || data.length === 0) return false
 
-  // Bucket sessions by ISO week (yyyy-Www).
+  // Bucket sessions by ISO week (Monday YYYY-MM-DD). `row.date` is a DATE string,
+  // so getAppWeekStart operates on it deterministically (no timezone drift).
   const buckets = new Map<string, number>()
   for (const row of data) {
-    const d = new Date(row.date)
-    const dow = d.getUTCDay() || 7
-    const monday = new Date(d)
-    monday.setUTCDate(d.getUTCDate() - (dow - 1))
-    const key = monday.toISOString().split('T')[0]
+    const key = getAppWeekStart(row.date as string)
     buckets.set(key, (buckets.get(key) ?? 0) + 1)
   }
 
-  // Walk back week-by-week from current week; need 4 consecutive with ≥3.
-  const now = new Date()
-  const dow = now.getUTCDay() || 7
-  const thisMonday = new Date(now)
-  thisMonday.setUTCDate(now.getUTCDate() - (dow - 1))
+  // Walk back week-by-week from the current Rome week; need 4 consecutive with ≥3.
+  const thisMonday = getAppWeekStart(getAppDate())
 
   let consecutive = 0
   for (let i = 0; i < 5; i++) {
-    const wk = new Date(thisMonday.getTime() - i * 7 * 24 * 60 * 60 * 1000)
-    const key = wk.toISOString().split('T')[0]
+    const key = addDays(thisMonday, -i * 7)
     if ((buckets.get(key) ?? 0) >= 3) consecutive++
     else {
       if (i === 0) continue // grace for in-progress current week

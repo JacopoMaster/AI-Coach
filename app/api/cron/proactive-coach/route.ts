@@ -25,6 +25,7 @@ import { getAIProvider } from '@/lib/ai/provider'
 import { AI_MODELS } from '@/lib/ai/models'
 import { isWaifu, pickRandomCharacter, type Character } from '@/lib/coach/roster'
 import { unlockMetricAchievements } from '@/lib/gamification/check-achievements'
+import { getAppDate, getAppDateDaysAgo, getAppDayOfWeek } from '@/lib/date/app-date'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -217,31 +218,9 @@ function configureVapid(): { ok: true } | { ok: false; error: string } {
   return { ok: true }
 }
 
-// ─── Helpers data Italia ────────────────────────────────────────────────────
-
-/** Returns YYYY-MM-DD for "today" in Europe/Rome — matches the format stored
- *  in `workout_sessions.date` (a DATE column written from the user's logs). */
-function romeDateISO(offsetDays = 0): string {
-  const now = new Date()
-  now.setUTCDate(now.getUTCDate() + offsetDays)
-  // 'en-CA' formats as YYYY-MM-DD, which is what we need.
-  return now.toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' })
-}
-
-/** Day of week in Europe/Rome. 0 = Sun, 1 = Mon, ..., 6 = Sat. */
-function romeDayOfWeek(): number {
-  const weekday = new Date().toLocaleDateString('en-US', {
-    timeZone: 'Europe/Rome',
-    weekday: 'short',
-  })
-  // 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
-  const map: Record<string, number> = {
-    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-  }
-  return map[weekday] ?? new Date().getUTCDay()
-}
-
 // ─── Algoritmo di scheduling ────────────────────────────────────────────────
+// Calendar dates / day-of-week use the shared Europe/Rome helper
+// (lib/date/app-date, D002). The Vercel Cron *schedule* stays UTC in vercel.json.
 
 function decideForUser(
   userId: string,
@@ -291,7 +270,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 2. Skip weekend immediately — saves a DB roundtrip.
-  const dow = romeDayOfWeek()
+  const dow = getAppDayOfWeek()
   if (dow === 0 || dow === 6) {
     return NextResponse.json({
       ok: true,
@@ -355,8 +334,8 @@ export async function GET(request: NextRequest) {
   }
 
   // 7. Per-user decision
-  const todayISO = romeDateISO(0)
-  const yesterdayISO = romeDateISO(-1)
+  const todayISO = getAppDate()
+  const yesterdayISO = getAppDateDaysAgo(1)
   const decisions: CoachDecision[] = []
   let skippedSummerEpisode = 0
   let skippedDisabled = 0

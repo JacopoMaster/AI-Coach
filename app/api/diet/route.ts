@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getDailyNutritionTotals } from '@/lib/diet/daily-totals'
+import { getAppDate, getAppDateDaysAgo } from '@/lib/date/app-date'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -26,9 +27,10 @@ export async function GET(request: NextRequest) {
 
   if (type === 'today') {
     // Source of truth: nutrition_entries, aggregated to a single day (D001/D011).
+    // "Today" is the Europe/Rome calendar date (D002), not the UTC date.
     // A DB error propagates from the helper and is surfaced as 500 (not masked as
     // "no meals"); a genuinely empty day yields null.
-    const today = new Date().toISOString().split('T')[0]
+    const today = getAppDate()
     try {
       const totals = await getDailyNutritionTotals(supabase, user.id, today, today)
       return NextResponse.json(totals[0] || null)
@@ -42,16 +44,15 @@ export async function GET(request: NextRequest) {
   if (type === 'logs') {
     // Per-day totals aggregated from nutrition_entries (D001/D011). Same shape
     // as before (date, calories, protein_g, carbs_g, fat_g) plus entries_count.
+    // Range lower bound is N days before today-in-Rome (D002).
     // A DB error is surfaced as 500; an empty range yields [].
     const days = parseInt(searchParams.get('days') || '30')
-    const from = new Date()
-    from.setDate(from.getDate() - days)
 
     try {
       const totals = await getDailyNutritionTotals(
         supabase,
         user.id,
-        from.toISOString().split('T')[0]
+        getAppDateDaysAgo(days)
       )
       return NextResponse.json(totals)
     } catch {

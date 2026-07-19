@@ -9,17 +9,8 @@ import { BodyMeasurement } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/utils'
+import { getAppDate, getAppWeekStart } from '@/lib/date/app-date'
 import { Plus, Trash2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
-
-/** Monday 00:00 (local) of the ISO week containing `date`, as YYYY-MM-DD. */
-function isoMondayLocal(date: Date): string {
-  const d = new Date(date)
-  const dow = d.getDay() // 0=Sun..6=Sat
-  const offset = dow === 0 ? -6 : 1 - dow
-  d.setDate(d.getDate() + offset)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString().split('T')[0]
-}
 
 export default function BodyPage() {
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
@@ -46,7 +37,7 @@ export default function BodyPage() {
   // and today inclusive. The 30-day default window for `days` always covers a
   // full ISO week, so this stays correct regardless of the chart-range toggle.
   const weighedThisWeek = useMemo(() => {
-    const monday = isoMondayLocal(new Date())
+    const monday = getAppWeekStart(getAppDate()) // Monday of this week, Europe/Rome (D002)
     return measurements.some(
       (m) =>
         m.date >= monday &&

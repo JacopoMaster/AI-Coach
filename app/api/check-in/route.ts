@@ -10,18 +10,20 @@ import {
 } from '@/lib/ai/check-in-schema'
 import { getAIProvider } from '@/lib/ai/provider'
 import { getDailyNutritionTotals } from '@/lib/diet/daily-totals'
+import { getAppDate, getAppDateDaysAgo, diffCalendarDays } from '@/lib/date/app-date'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 function getCurrentWeek(startDate: string, durationWeeks: number): number {
-  const start = new Date(startDate)
-  const now = new Date()
-  const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  // Calendar-day difference in Europe/Rome (D002): the week number must roll over
+  // at Rome midnight, not 1–2h later due to a UTC millisecond anchor.
+  const days = diffCalendarDays(startDate, getAppDate())
   return Math.min(Math.max(Math.floor(days / 7) + 1, 1), durationWeeks)
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0]
+  // Europe/Rome calendar date (D002) — used for meso start/end dates.
+  return getAppDate()
 }
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
@@ -170,8 +172,10 @@ export async function GET() {
     .limit(1)
     .single()
 
+  // check_in_date is a DATE — count calendar days to today-in-Rome (D002), so the
+  // weekly banner rolls over at Rome midnight, not on a UTC millisecond anchor.
   const daysSinceCheckIn = lastCheckIn
-    ? Math.floor((Date.now() - new Date(lastCheckIn.check_in_date).getTime()) / (1000 * 60 * 60 * 24))
+    ? diffCalendarDays(lastCheckIn.check_in_date, getAppDate())
     : null
 
   const pendingCheckIn = lastCheckIn && !lastCheckIn.applied ? lastCheckIn : null
@@ -226,13 +230,13 @@ export async function POST(request: NextRequest) {
     const currentWeek = getCurrentWeek(meso.start_date, meso.duration_weeks)
     const checkInType = detectCheckInType(currentWeek, meso.duration_weeks)
 
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    // Last 7 days relative to today-in-Rome (D002).
+    const sevenDaysAgo = getAppDateDaysAgo(7)
 
     // For end_of_meso we need the full meso history; for weekly, last 7 days
     const sessionsFromDate = checkInType === 'end_of_meso'
       ? meso.start_date
-      : sevenDaysAgo.toISOString().split('T')[0]
+      : sevenDaysAgo
 
     // Diet totals come from nutrition_entries aggregated per day (D001/D011),
     // not the deprecated diet_logs table. Shape keeps protein_g/carbs_g/fat_g so
@@ -248,11 +252,7 @@ export async function POST(request: NextRequest) {
         .eq('user_id', user.id)
         .gte('date', sessionsFromDate)
         .order('date', { ascending: false }),
-      getDailyNutritionTotals(
-        supabase,
-        user.id,
-        sevenDaysAgo.toISOString().split('T')[0]
-      ),
+      getDailyNutritionTotals(supabase, user.id, sevenDaysAgo),
       supabase
         .from('workout_plans')
         .select(`*, days:workout_plan_days(*, exercises:plan_exercises(*))`)

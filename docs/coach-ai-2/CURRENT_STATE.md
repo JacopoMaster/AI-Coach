@@ -39,7 +39,7 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
 
 ## Problemi noti / stato accertato a livello dati
 
-### Dieta — sorgente unificata (P0.1 completata, in attesa di commit)
+### Dieta — sorgente unificata (P0.1 completata, commit `50fca65`)
 - `diet_logs` è **vuota in produzione**; `nutrition_entries` **contiene i dati reali**.
 - `nutrition_entries` è la **source of truth** (D001, D011).
 - **P0.1**: introdotto l'helper server-side `lib/diet/daily-totals.ts`
@@ -65,6 +65,33 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
   - Nessun'altra scrittura attiva a `diet_logs` nel codice Next: l'unica occorrenza
     `.from('diet_logs')` residua è quella Edge Function.
 - **Nessuna** view SQL, tabella, migrazione o modifica RLS introdotta (D011).
+
+### Date applicative — Europe/Rome (P0.2 completata, in attesa di commit)
+- **D002 applicato**: nuovo helper centrale `lib/date/app-date.ts` = unica fonte di verità
+  per le **date di calendario** (`APP_TIME_ZONE = 'Europe/Rome'`). API: `getAppDate(date?)`,
+  `addDays`/`subDays`, `getAppDateDaysAgo(n)`, `diffCalendarDays(from, to)`,
+  `getAppWeekStart(dateStr)`, `getAppDayOfWeek(date?)`.
+  Nativo (Intl + Date), nessuna dipendenza; aritmetica date-only ancorata a UTC-midnight
+  (deterministica, DST-safe, nessun doppio shift).
+- `lib/utils.ts today()` ora **delega** a `getAppDate()` → tutti i consumer client
+  (NutritionTracker, log allenamento, Today) ottengono la data italiana.
+- **Calendar date migrate a Rome**: data pasto (quick-log, nutrition default), data pesata
+  (body/scan), date sessione/mesociclo (workouts, check-in), "oggi" del Coach (system prompt),
+  range "ultimi N giorni" (diet, body, workouts, tools Coach, check-in, achievement 30g),
+  settimana/Monday (Today, body, Perfect Week/streak, iron-will achievement), vacation check
+  in `/api/stats`, **numero settimana mesociclo** (`getCurrentWeek` in check-in e workouts,
+  `getWeekForDate`, banner "giorni dall'ultimo check-in") ora via `diffCalendarDays` +
+  `getAppDate()` (rollover a mezzanotte Roma, non su ancora UTC in millisecondi).
+- **Cron centralizzati**: `weight-reminder` e `proactive-coach` (route Next) usavano copie
+  locali `romeDateISO/romeIsoMonday/romeDayOfWeek` → ora usano l'helper condiviso. **Gli
+  orari delle schedule Vercel Cron restano invariati** (UTC in `vercel.json`).
+- **Timestamp tecnici lasciati UTC** (corretto): `created_at`/`updated_at`/`sent_at`,
+  `resonance_last_tick`, finestra `since24h` in `/api/stats`, gate 24h del resonance tick
+  (`check-perfect-week` `hours`), etichette/durate di display client-side (nomi meso, label
+  grafici, `relativeDate` in `status`, `effectiveDuration` in `workouts/history`).
+- **Fuori scope P0.2**: Edge Functions Deno `proactive-coach`/`morning-motivation`
+  (`supabase/functions/*`, runtime separato, non importano `lib/`) e `lib/gamification/vacation.ts`
+  (feature Vacation inerte; aritmetica date-only già UTC-anchored). Segnalati, non modificati.
 
 ### Migrazioni — disallineamento tracking vs DB
 - Cartella repo `supabase/migrations/` contiene file fino a **012**
@@ -96,24 +123,25 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
 
 ---
 
-## Working tree (dopo P0.1, pre-commit)
+## Working tree (dopo P0.2, pre-commit)
 
-Modificati (tracked, in scope P0.1):
-- `app/api/diet/route.ts` — letture via helper; write `action=log` marcato deprecato.
-- `lib/ai/tools.ts` — `get_diet_logs` via helper.
-- `app/api/check-in/route.ts` — `diet_feedback` via helper.
+P0.1 è committato (`50fca65`). P0.2 modifica (tracked): `lib/utils.ts`, `app/api/diet/route.ts`,
+`app/api/diet/quick-log/route.ts`, `app/api/nutrition/route.ts`, `app/api/check-in/route.ts`,
+`app/api/coach/route.ts`, `app/api/stats/route.ts`, `app/api/body/route.ts`,
+`app/api/body/scan/route.ts`, `app/api/workouts/route.ts`, `lib/ai/tools.ts`,
+`lib/gamification/check-achievements.ts`, `lib/gamification/check-perfect-week.ts`,
+`app/api/cron/weight-reminder/route.ts`, `app/api/cron/proactive-coach/route.ts`,
+`app/(app)/today/page.tsx`, `app/(app)/body/page.tsx`.
+Non tracciato (in scope P0.2): `lib/date/app-date.ts` (nuovo helper).
 
-Non tracciati (in scope P0.1):
-- `lib/diet/daily-totals.ts` — nuovo helper aggregazione.
-
-Fuori scope (invariati, da non includere nel commit P0.1):
+Fuori scope (invariati, da non includere nel commit):
 - `.claude/settings.local.json` — config locale.
 - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
 
 Refactor AIErrorClass/logging: isolato sul branch `feat/ai-error-logging`
 (commit `8d8cd67`), **non** su main.
 
-Git: `main` ahead di `origin/main` (commit `d40d5fa`, `86bfeb6`). **Nessun push** effettuato.
+Git: `main` ahead di `origin/main` (`d40d5fa`, `86bfeb6`, `50fca65`). **Nessun push** effettuato.
 
 ---
 

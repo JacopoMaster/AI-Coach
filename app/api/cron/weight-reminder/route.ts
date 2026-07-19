@@ -21,6 +21,7 @@ import { getAIProvider } from '@/lib/ai/provider'
 import { AI_MODELS } from '@/lib/ai/models'
 import { isWaifu, pickRandomCharacter, type Character } from '@/lib/coach/roster'
 import { unlockMetricAchievements } from '@/lib/gamification/check-achievements'
+import { getAppDate, getAppWeekStart } from '@/lib/date/app-date'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -157,28 +158,9 @@ function configureVapid(): { ok: true } | { ok: false; error: string } {
   return { ok: true }
 }
 
-// ─── Helpers data Italia ────────────────────────────────────────────────────
-
-/** Returns YYYY-MM-DD for "today" in Europe/Rome — matches the format stored
- *  in `body_measurements.date`. */
-function romeDateISO(offsetDays = 0): string {
-  const now = new Date()
-  now.setUTCDate(now.getUTCDate() + offsetDays)
-  return now.toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' })
-}
-
-/** Monday 00:00 (Europe/Rome) of the ISO week containing the current date,
- *  as YYYY-MM-DD. */
-function romeIsoMonday(): string {
-  const todayStr = romeDateISO(0)
-  const today = new Date(`${todayStr}T00:00:00Z`)
-  const dow = today.getUTCDay() // 0=Sun..6=Sat
-  const offset = dow === 0 ? -6 : 1 - dow
-  today.setUTCDate(today.getUTCDate() + offset)
-  return today.toISOString().split('T')[0]
-}
-
 // ─── Handler ────────────────────────────────────────────────────────────────
+// Calendar dates use the shared Europe/Rome helper (lib/date/app-date, D002).
+// The Vercel Cron *schedule* stays UTC-expressed in vercel.json — unchanged.
 
 export async function GET(request: NextRequest) {
   // 1. Auth
@@ -248,8 +230,8 @@ export async function GET(request: NextRequest) {
   }
 
   // 6. Per-user: did they weigh in this week?
-  const weekStart = romeIsoMonday()
-  const todayISO = romeDateISO(0)
+  const weekStart = getAppWeekStart(getAppDate())
+  const todayISO = getAppDate()
 
   const targetUsers: string[] = []
   let skippedSummerEpisode = 0

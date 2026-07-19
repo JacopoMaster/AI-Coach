@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { awardExp } from '@/lib/gamification/award-exp'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
+import { getAppDateDaysAgo } from '@/lib/date/app-date'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -12,14 +13,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const days = parseInt(searchParams.get('days') || '30')
 
-  const from = new Date()
-  from.setDate(from.getDate() - days)
-
+  // Range lower bound: N days before today-in-Rome (D002).
   const { data, error } = await supabase
     .from('body_measurements')
     .select('*')
     .eq('user_id', user.id)
-    .gte('date', from.toISOString().split('T')[0])
+    .gte('date', getAppDateDaysAgo(days))
     .order('date', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

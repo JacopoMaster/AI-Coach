@@ -42,42 +42,41 @@
 
 - **Data**: 2026-07-19
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `86bfeb6 docs(coach-ai-2): add multi-session development plan`
-  (precedente: `d40d5fa`). `main` ahead di `origin/main` — **nessun push** effettuato.
+- **Ultimo commit (locale)**: `50fca65 feat(diet): unify diet source on nutrition_entries`
+  (prima: `86bfeb6`, `d40d5fa`). `main` ahead di `origin/main` — **nessun push** effettuato.
   Refactor AIErrorClass/logging isolato sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
-  - **P0.1 — Unificazione dieta su `nutrition_entries`** (implementazione + verifica,
+  - **P0.1 — Unificazione dieta** su `nutrition_entries` → **committato** (`50fca65`).
+  - **P0.2 — Date applicative Europe/Rome** (D002, implementazione + verifica,
     **in attesa di commit/approvazione**):
-    - nuovo helper `lib/diet/daily-totals.ts` → `getDailyNutritionTotals(supabase, userId,
-      fromDate?, toDate?)`, aggrega per giorno e normalizza `proteins/carbs/fats →
-      protein_g/carbs_g/fat_g` in un solo punto (+`entries_count`);
-    - letture unificate: `app/api/diet/route.ts` (GET today/logs), `lib/ai/tools.ts`
-      (`get_diet_logs`, usato dal Coach), `app/api/check-in/route.ts` (`diet_feedback`);
-    - scritture invariate (`/api/nutrition`, `/api/diet/quick-log`);
-    - `diet_logs`: write `action=log` **disattivato → 410 Gone** (nessun caller; payload
-      non equivalente, non reindirizzato); nessuna migrazione/view/RLS toccata;
-    - helper: **errore DB lanciato** (non mascherato come dieta vuota), zero record → `[]`;
-      `/api/diet` GET restituisce 500 sull'errore.
+    - nuovo helper centrale `lib/date/app-date.ts` (unica fonte di verità,
+      `APP_TIME_ZONE='Europe/Rome'`): `getAppDate(date?)`, `addDays`/`subDays`,
+      `getAppDateDaysAgo(n)`, `getAppWeekStart(dateStr)`, `getAppDayOfWeek(date?)`;
+      nativo Intl+Date, aritmetica date-only UTC-anchored (DST-safe);
+    - `lib/utils.ts today()` delega a `getAppDate()`;
+    - migrate calendar date (pasto/pesata/sessione/mesociclo/oggi-Coach), range "ultimi N
+      giorni", logica settimana/streak/Perfect Week/iron-will, cron Next centralizzati
+      (weight-reminder, proactive-coach);
+    - timestamp tecnici UTC invariati; **schedule Vercel Cron invariate**;
+    - fuori scope: Edge Functions Deno + `lib/gamification/vacation.ts`.
 - **Test eseguiti**:
   - `npx tsc --noEmit` → OK; `npm run build` → OK; `git diff --check` → pulito.
-  - Verifica logica helper (scratchpad, Node 24 TS, no nuove dipendenze) → **9/9 scenari**
-    (aggregazione stesso giorno, giorni separati, null/stringhe, range from/to, utente
-    vuoto, filtro user_id, errore DB→throw, zero record→[], data null→[]).
-- **Stato working tree** (pre-commit): modificati `app/api/diet/route.ts`,
-  `lib/ai/tools.ts`, `app/api/check-in/route.ts`; untracked `lib/diet/`.
-- **File estranei da NON includere nel commit P0.1**:
+  - Verifica helper (scratchpad, Node 24 TS, no dipendenze) → **10/10 gruppi** (estate,
+    inverno, giorno normale, acceptance mezzanotte IT, DST primavera/autunno, aritmetica
+    date-only + anno + bisestile, getAppDateDaysAgo, getAppWeekStart, getAppDayOfWeek).
+- **Stato working tree** (pre-commit): 17 file tracked modificati + untracked `lib/date/`
+  (vedi CURRENT_STATE per l'elenco completo).
+- **File estranei da NON includere nel commit P0.2**:
   - `.claude/settings.local.json` — config locale.
   - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
-- **Decisioni rilevanti**: D001, D011 (applicate in P0.1), D002 (→ P0.2), D010.
-- **Prossimo task**: **P0.2 — Timezone `Europe/Rome`** (D002): uniformare i confini di
-  "giornata" (log/reminder/cron e le aggregazioni dieta, incl. le date `today` calcolate
-  con `toISOString()` in `app/api/diet`, `quick-log`, `check-in`, Today) su Europe/Rome.
-- **File da leggere nel prossimo task (P0.2)**:
-  - `app/api/diet/route.ts`, `app/api/diet/quick-log/route.ts`, `app/api/check-in/route.ts`,
-    `lib/diet/daily-totals.ts`, `app/(app)/today/page.tsx`, `lib/utils.ts` (`today()`),
-    route cron `app/api/cron/*`.
-- **Blocker**: nessuno. Legacy residuo noto: Edge Function `proactive-coach` (Deno) legge
-  ancora `diet_logs` — fuori scope P0.1, da migrare in task dedicato.
+- **Decisioni rilevanti**: D002 (applicata in P0.2), D001/D011 (P0.1, committate), D010.
+- **Prossimo task**: **P0.3 — Sicurezza route admin** (proteggere `app/api/admin/*` con
+  autorizzazione verificata).
+- **File da leggere nel prossimo task (P0.3)**:
+  - `app/api/admin/hard-reset/route.ts`, `app/api/admin/recover-xp/route.ts`,
+    `proxy.ts` (middleware auth), `lib/supabase/server.ts`.
+- **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
+  date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:
   ```bash
   git status --short

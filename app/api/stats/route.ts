@@ -9,14 +9,15 @@ import {
 import { isOnVacation } from '@/lib/gamification/vacation'
 import { tickResonanceIfNeeded } from '@/lib/gamification/check-perfect-week'
 import type { ExpHistoryEntry, UserStats } from '@/lib/gamification/types'
+import { getAppDate } from '@/lib/date/app-date'
 
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const todayISO = new Date().toISOString().split('T')[0]
-  const since24hISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const todayISO = getAppDate() // Europe/Rome calendar date (D002) — vacation check
+  const since24hISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // 24h instant (technical timestamp)
 
   // Lazy Perfect-Week evaluation on app open. Non-fatal: a stale read is
   // always preferable to a failed dashboard load. The result is surfaced as a

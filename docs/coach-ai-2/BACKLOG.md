@@ -7,13 +7,21 @@
 
 ## Prossimi task — P0 (Fase 0, in ordine)
 
-- [ ] **TODO — P0.2 · Timezone `Europe/Rome`** (D002). Uniformare i confini di giornata
-  in log, reminder e cron. **← prossimo task.**
 - [ ] **TODO — P0.3 · Sicurezza route admin**. Proteggere le route amministrative con
-  autorizzazione verificata.
+  autorizzazione verificata. **← prossimo task.**
 
 ### DONE in attesa di commit
-- [x] **DONE (pending commit) — P0.1 · Unificazione dieta** su `nutrition_entries`
+- [x] **DONE (pending commit) — P0.2 · Date applicative Europe/Rome** (D002). Helper
+  centrale `lib/date/app-date.ts` (`getAppDate`, `addDays`/`subDays`, `getAppDateDaysAgo`,
+  `getAppWeekStart`, `getAppDayOfWeek`); `today()` delega all'helper. Migrate le calendar
+  date (pasto/pesata/sessione/mesociclo/oggi-Coach), i range "ultimi N giorni", la logica
+  settimana/streak/Perfect Week e i cron Next (weight-reminder, proactive-coach). Timestamp
+  tecnici UTC invariati; schedule Vercel Cron invariate; Edge Functions Deno e `vacation.ts`
+  fuori scope. tsc/build OK; verifica helper 10/10 (estate/inverno/DST/aritmetica). Commit
+  suggerito: `feat(date): resolve app calendar dates in Europe/Rome (P0.2)`.
+
+### DONE (commit `50fca65`)
+- [x] **DONE — P0.1 · Unificazione dieta** su `nutrition_entries`
   (D001, D011), **senza migrazione DB / senza view SQL**. Helper `lib/diet/daily-totals.ts`
   (`getDailyNutritionTotals`); letture unificate in `app/api/diet` (GET), `lib/ai/tools.ts`
   (`get_diet_logs`, usato dal Coach) e `app/api/check-in`. Scritture invariate su
@@ -41,9 +49,9 @@
 ## Backlog per fase
 
 ### Fase 0 — Stabilizzazione minima
-- **DONE (pending commit)**: P0.1 unificazione dieta (helper `getDailyNutritionTotals`,
-  letture su `nutrition_entries`, no migrazione/no view, `diet_logs` deprecata).
-- **TODO**: P0.2 timezone · P0.3 sicurezza admin (vedi sopra).
+- **DONE**: P0.1 unificazione dieta (commit `50fca65`).
+- **DONE (pending commit)**: P0.2 date applicative Europe/Rome (helper `lib/date/app-date`).
+- **TODO**: P0.3 sicurezza admin (vedi sopra).
 
 ### Fase 1 — Athlete Profile
 - **TODO**: definire schema profilo (obiettivi, esperienza, disponibilità, durata,

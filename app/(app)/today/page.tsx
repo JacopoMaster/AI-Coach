@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatDate, today } from '@/lib/utils'
+import { getAppDate, getAppWeekStart, addDays } from '@/lib/date/app-date'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSpiralState } from '@/hooks/use-spiral-state'
@@ -88,20 +89,15 @@ export default function TodayPage() {
 
   // --- Weekly balance logic ---
 
-  // Monday of the current ISO week (Mon = start, Sun = end)
-  const mondayStr = (() => {
-    const now = new Date()
-    const dow = now.getDay()                    // 0=Sun … 6=Sat
-    const daysFromMon = dow === 0 ? 6 : dow - 1 // Sun wraps to 6
-    const mon = new Date(now)
-    mon.setDate(now.getDate() - daysFromMon)
-    return mon.toISOString().split('T')[0]
-  })()
+  // Monday of the current ISO week in Europe/Rome (Mon = start, Sun = end).
+  const todayStr = getAppDate()
+  const mondayStr = getAppWeekStart(todayStr)
 
-  // How many days have elapsed since Monday (Mon=1 … Sun=7)
+  // How many days have elapsed since Monday (Mon=1 … Sun=7), Europe/Rome.
   const daysElapsed = (() => {
-    const dow = new Date().getDay()
-    return dow === 0 ? 7 : dow
+    let n = 1
+    for (let d = mondayStr; d < todayStr; d = addDays(d, 1)) n++
+    return n
   })()
 
   // Keep only logs that fall within the current week (Mon–today)

@@ -7,11 +7,12 @@ import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
 import { computeExerciseTonnage, normalizeSets } from '@/lib/workouts/tonnage'
 import type { SessionSet } from '@/lib/types'
+import { getAppDate, getAppDateDaysAgo, diffCalendarDays } from '@/lib/date/app-date'
 
 function getCurrentWeek(startDate: string, durationWeeks: number): number {
-  const start = new Date(startDate)
-  const now = new Date()
-  const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  // Calendar-day difference in Europe/Rome (D002): the week number must roll over
+  // at Rome midnight, not 1–2h later due to a UTC millisecond anchor.
+  const days = diffCalendarDays(startDate, getAppDate())
   return Math.min(Math.max(Math.floor(days / 7) + 1, 1), durationWeeks)
 }
 
@@ -56,9 +57,8 @@ export async function GET(request: NextRequest) {
 
   if (type === 'sessions') {
     const days = parseInt(searchParams.get('days') || '30')
-    const from = new Date()
-    from.setDate(from.getDate() - days)
 
+    // Range lower bound: N days before today-in-Rome (D002).
     const { data, error } = await supabase
       .from('workout_sessions')
       .select(`
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('user_id', user.id)
-      .gte('date', from.toISOString().split('T')[0])
+      .gte('date', getAppDateDaysAgo(days))
       .order('date', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -276,10 +276,8 @@ export async function GET(request: NextRequest) {
 
     function getWeekForDate(dateStr: string): number | null {
       if (!activeMeso) return null
-      const days = Math.floor(
-        (new Date(dateStr).getTime() - new Date(activeMeso.start_date).getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
+      // Both are DATE strings — count calendar days deterministically (D002).
+      const days = diffCalendarDays(activeMeso.start_date, dateStr)
       if (days < 0) return null
       return Math.min(Math.floor(days / 7) + 1, activeMeso.duration_weeks)
     }
@@ -399,7 +397,7 @@ export async function POST(request: NextRequest) {
     // 1. Archive any currently active mesocycle
     await supabase
       .from('mesocycles')
-      .update({ status: 'archived', end_date: new Date().toISOString().split('T')[0] })
+      .update({ status: 'archived', end_date: getAppDate() })
       .eq('user_id', user.id)
       .eq('status', 'active')
 
@@ -411,14 +409,14 @@ export async function POST(request: NextRequest) {
 
     const mesoNumber = (count ?? 0) + 1
     const now = new Date()
-    const monthName = now.toLocaleDateString('it-IT', { month: 'long' })
+    const monthName = now.toLocaleDateString('it-IT', { month: 'long' }) // display label only
     const mesoName = `Meso ${mesoNumber} - ${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${now.getFullYear()}`
 
     await supabase.from('mesocycles').insert({
       user_id: user.id,
       workout_plan_id: plan.id,
       name: mesoName,
-      start_date: now.toISOString().split('T')[0],
+      start_date: getAppDate(), // Europe/Rome calendar date (D002)
       duration_weeks: 6,
       status: 'active',
     })

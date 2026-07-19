@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { getDailyNutritionTotals } from '@/lib/diet/daily-totals'
+import { getAppDateDaysAgo } from '@/lib/date/app-date'
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -189,13 +190,11 @@ export async function executeTool(
   switch (toolName) {
     case 'get_body_metrics': {
       const days = (toolInput.days as number) || 30
-      const from = new Date()
-      from.setDate(from.getDate() - days)
       const { data } = await supabase
         .from('body_measurements')
         .select('*')
         .eq('user_id', userId)
-        .gte('date', from.toISOString().split('T')[0])
+        .gte('date', getAppDateDaysAgo(days)) // N days before today-in-Rome (D002)
         .order('date', { ascending: true })
       return data || []
     }
@@ -220,13 +219,11 @@ export async function executeTool(
 
     case 'get_workout_history': {
       const days = (toolInput.days as number) || 30
-      const from = new Date()
-      from.setDate(from.getDate() - days)
       const { data } = await supabase
         .from('workout_sessions')
         .select(`*, plan_day:workout_plan_days(day_name), exercises:session_exercises(*, plan_exercise:plan_exercises(name))`)
         .eq('user_id', userId)
-        .gte('date', from.toISOString().split('T')[0])
+        .gte('date', getAppDateDaysAgo(days)) // N days before today-in-Rome (D002)
         .order('date', { ascending: false })
       return data || []
     }
@@ -244,14 +241,9 @@ export async function executeTool(
     case 'get_diet_logs': {
       // Source of truth: nutrition_entries aggregated per day (D001/D011).
       // Returns date, calories, protein_g, carbs_g, fat_g, entries_count.
+      // Range lower bound: N days before today-in-Rome (D002).
       const days = (toolInput.days as number) || 30
-      const from = new Date()
-      from.setDate(from.getDate() - days)
-      return getDailyNutritionTotals(
-        supabase,
-        userId,
-        from.toISOString().split('T')[0]
-      )
+      return getDailyNutritionTotals(supabase, userId, getAppDateDaysAgo(days))
     }
 
     case 'update_workout_plan': {

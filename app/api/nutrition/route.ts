@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { awardExp } from '@/lib/gamification/award-exp'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
+import { getAppDate } from '@/lib/date/app-date'
 
 // Per-entry base EXP for nutrition_entries. Derived from the established
 // daily diet target of 50 EXP (legacy diet_logs: 30 base + 20 protein bonus)
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get('type')
 
   if (type === 'entries') {
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
+    const date = searchParams.get('date') || getAppDate()
     const { data, error } = await supabase
       .from('nutrition_entries')
       .select('*')

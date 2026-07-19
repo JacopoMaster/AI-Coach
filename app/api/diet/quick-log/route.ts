@@ -6,6 +6,7 @@ import { awardExp } from '@/lib/gamification/award-exp'
 import { AI_MODELS } from '@/lib/ai/models'
 import { toGamificationPayload } from '@/lib/gamification/payload'
 import type { Reward } from '@/lib/gamification/types'
+import { getAppDate } from '@/lib/date/app-date'
 
 // Same per-entry budget used by /api/nutrition add_entry — quick-log writes
 // to the same nutrition_entries table.
@@ -57,7 +58,8 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const entryDate = new Date().toISOString().split('T')[0]
+  // Meal belongs to the user's Europe/Rome calendar day (D002).
+  const entryDate = getAppDate()
 
   const { data, error } = await supabase
     .from('nutrition_entries')

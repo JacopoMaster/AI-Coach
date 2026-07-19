@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { vacationDaysInWeek } from './vacation'
 import { unlockMetricAchievements } from './check-achievements'
+import { getAppDate, getAppWeekStart } from '@/lib/date/app-date'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 const RESONANCE_CAP = 3.0
@@ -26,13 +27,14 @@ const RESONANCE_STEP_UP = 0.25
 const RESONANCE_DECAY_FACTOR = 0.5
 const MIN_MULT = 1.0
 
-/** Monday 00:00 of the ISO week containing `date`. */
+/** Monday of the ISO week containing `date`, anchored at UTC midnight.
+ *  The week is computed on the Europe/Rome calendar date (D002) so it aligns
+ *  with the calendar dates stored in DATE columns; the UTC-midnight anchor keeps
+ *  the downstream day arithmetic (getTime ± N·MS_PER_DAY, toISOString) exact. */
 function isoWeekStart(date: Date): Date {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
-  const dow = d.getUTCDay() // 0=Sun..6=Sat
-  const offset = dow === 0 ? -6 : 1 - dow
-  d.setUTCDate(d.getUTCDate() + offset)
-  return d
+  const mondayStr = getAppWeekStart(getAppDate(date)) // YYYY-MM-DD (Rome week Monday)
+  const [y, m, d] = mondayStr.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d))
 }
 
 export interface PerfectWeekResult {

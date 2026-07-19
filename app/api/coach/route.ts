@@ -5,6 +5,7 @@ import { executeTool } from '@/lib/ai/tools'
 import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import { classifyIntent, getAIProvider } from '@/lib/ai/provider'
 import { AI_MODELS } from '@/lib/ai/models'
+import { getAppDate } from '@/lib/date/app-date'
 
 // ─── Response schema ───────────────────────────────────────────────────────────
 // The LLM returns a free-text reply AND optionally declares write actions.
@@ -228,7 +229,7 @@ export async function POST(request: NextRequest) {
   try {
     coachResponse = await getAIProvider().generateStructuredOutput(
       prompt,
-      buildSystemPrompt(user.email || 'utente', new Date().toISOString().split('T')[0]),
+      buildSystemPrompt(user.email || 'utente', getAppDate()),
       CoachResponseSchema,
       4096,
       modelOverride

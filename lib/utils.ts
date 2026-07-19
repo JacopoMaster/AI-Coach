@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { getAppDate } from '@/lib/date/app-date'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -23,6 +24,8 @@ export function formatDateTime(date: string) {
   })
 }
 
+/** Today's calendar date (YYYY-MM-DD) in the app timezone (Europe/Rome, D002).
+ *  Delegates to the single source of truth in lib/date/app-date. */
 export function today() {
-  return new Date().toISOString().split('T')[0]
+  return getAppDate()
 }
