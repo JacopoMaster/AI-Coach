@@ -7,9 +7,35 @@
 
 ## Prossimi task — Fase 2 (September Restart)
 
-> **Fase 0 COMPLETATA.** **Fase 1 (Athlete Profile) COMPLETATA** — F1.1–F1.5 tutte DONE e
-> verificate. Prossima fase: **Fase 2 — September Restart** (non ancora iniziata; vedi
-> `MASTER_PLAN.md` e D008/D009).
+> **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 avviata**: **F2.1 design
+> DONE** (docs). Prossimo task: **F2.2** (Restart Baseline + Data Quality + PlanFit aggregation
+> layer). Riferimenti: D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
+
+### Roadmap Fase 2 (approvata)
+- [x] **DONE — F2.1 · Design & Architecture Restart / Training Strategy** (docs). Entità e confini
+  (D014), baseline error-honest/auditabile a finestre 4/8/12 (D015), data quality per dominio
+  (D016), affidabilità metriche + PlanFit parziale (D017), flusso ibrido codice→AI→conferma
+  (D018), `baseline_tonnage` separato (D019). Design completo in `CURRENT_STATE.md`.
+- [ ] **TODO — F2.2 · Restart Baseline + Data Quality + PlanFit (aggregation layer)**. Helper
+  server-side **deterministici ed error-honest** che producono `RestartBaseline` (training/
+  performance/body/nutrition/adherence, finestre 4/8/12, Europe/Rome), `DataQuality` per dominio
+  (+ raw evidence) e `PlanFitReport` parziale (confirmed vs possible conflicts). **NESSUN** DB/
+  migration/AI/UI/persistenza. `personal_records` non autoritativo (ricalcolo da
+  `session_exercises`); `nutrition` missing ≠ zero; `user_stats.baseline_tonnage` non usato.
+  Test su dati insufficient/limited/sufficient. **← prossimo.**
+- [ ] **TODO — F2.3 · Schema DB Restart Assessment + Training Strategy**. Migration `014`
+  (`restart_assessments` immutabile + `training_strategies`, RLS per-utente, trigger
+  `updated_at`, una sola strategy `active`). Applicazione manuale + verifica (come F1.2).
+- [ ] **TODO — F2.4 · Assessment application/API layer**. Calcolo baseline + persistenza
+  Assessment; read strategia attiva. Errori generici stile P0.3.
+- [ ] **TODO — F2.5 · AI Strategy Proposal (strutturata)**. Schema Zod + provider + **validazione
+  applicativa**. Solo proposta, nessuna write.
+- [ ] **TODO — F2.6 · Strategy confirmation & persistence (D007)**. Conferma utente → persiste
+  Strategy (active) + link Assessment; transizione mesociclo/piano solo se confermata.
+- [ ] **TODO — F2.7 · Restart UI**. Assessment + domande minime adattive + proposta + rationale +
+  conferma; aggiornamenti disponibilità/limitazioni proposti sul Profilo (source of truth).
+- [ ] **TODO — F2.8 · Decision Center (UI iniziale)**. Lettura strategia attiva + rationale +
+  review date (sola lettura).
 
 - [x] **DONE — F1.1 · Design & Architecture Audit** (docs). Modello `athlete_profiles`
   consolidato (vedi `CURRENT_STATE.md` → "Fase 1 — Athlete Profile") + confini **D012** +
@@ -122,13 +148,17 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart
-- **TODO**: assessment, baseline, fase Restart, strategia salvata (D008). La **baseline
-  corporea** usa **solo** metriche già presenti in `body_measurements` (peso/trend, body fat/
-  trend, masse, viscerale) + performance/frequenza/aderenza — **nessuna nuova misurazione**.
-- **NON pianificato / fuori scope**: `waist_cm`/girovita e qualunque task tipo "F2.0 supporto
-  waist_cm". Decisione di prodotto (D009 riformulata): niente tracking manuale del girovita,
-  non è requisito di Restart/Decision Center/Nutrition Coach. **Non reintrodurre.**
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1 design DONE)
+- Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D019** + sezione
+  "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
+- Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training
+  Strategy** (decisione, una sola active) / Workout Plan / Mesocycle. Baseline error-honest a
+  finestre **4/8/12** (D015); data quality per dominio (D016); metriche affidabili + PlanFit
+  parziale (D017); flusso codice→AI→conferma D007 (D018); `baseline_tonnage` separato (D019).
+- La **baseline corporea** usa **solo** metriche già in `body_measurements` (peso/trend, body
+  fat/trend, masse, viscerale) + performance/frequenza/aderenza — **nessuna nuova misurazione**.
+- **NON pianificato / fuori scope**: `waist_cm`/girovita e qualunque task tipo "supporto
+  waist_cm" (D009 riformulata). **Non reintrodurre.**
 
 ### Fase 3 — Decision Center
 - **TODO**: vista obiettivo/fase/priorità/rationale/rivalutazione + "Perché?" (D006).

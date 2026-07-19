@@ -71,6 +71,95 @@
   giustificare l'**attrito** introdotto. Ha motivato la riformulazione di D009 (rimozione
   del tracking manuale del girovita).
 
+- **D014** — **Confini delle entità del Restart (Fase 2).** Restano cinque entità distinte,
+  mai mescolate:
+  - **Athlete Profile** = chi è l'utente e i suoi tratti/vincoli/preferenze relativamente
+    stabili (D012).
+  - **Restart Assessment** = **fotografia fattuale** di *cosa sappiamo* nel momento della
+    decisione. **Immutabile e auditabile** una volta finalizzato. Contiene principalmente:
+    analysis period, **baseline snapshot**, **data quality**, **PlanFitReport**, risposte
+    manuali, metadata di audit. **Non** è un contenitore di narrativa AI.
+  - **Training Strategy** = **interpretazione e decisione** (proposta poi confermata) su
+    *cosa fare e perché*. Entità **attiva/temporanea**. Contiene le parti interpretative:
+    summary, primary objective, observations, priorities, rationale, risks_uncertainties,
+    review date. **Una sola Training Strategy con status `active` per utente** (futuro:
+    unique partial index su `user_id WHERE status='active'` + validazione applicativa).
+  - **Workout Plan** = prescrizione concreta (esercizi/serie/reps).
+  - **Mesocycle** = periodo concreto di programmazione.
+  Principio: *Assessment = cosa sappiamo; Strategy = cosa ne concludiamo e proponiamo di fare.*
+
+- **D015** — **Baseline Restart error-honest, auditabile, a finestre 4/8/12 settimane.**
+  - Gli aggregatori della baseline devono **distinguere** «query riuscita senza dati» (=
+    assenza dati) da «query fallita» (= errore): un errore DB **non** deve mai diventare
+    artificialmente `insufficient data`. **Vietato** riusare helper di lettura che mascherano
+    gli errori come array vuoti (i `executeTool` del Coach). F2.2 crea aggregatori dedicati.
+  - Lo **snapshot** dei valori usati per la decisione è **persistito** nell'Assessment
+    (audit "cosa sapevamo", D008); le viste live successive **ricalcolano**, non leggono lo
+    snapshot.
+  - Finestra standard **massima 12 settimane**, con viste annidate **4** (recentissima) / **8**
+    (trend recente) / **12** (quadro più stabile); la **performance recente** privilegia **8**
+    settimane; i dati **all-time** sono solo riferimento storico. Con meno di 12 settimane di
+    dati: usare il disponibile e **rifletterlo nella data quality**. Nessuna finestra adattiva opaca.
+
+- **D016** — **Data quality per dominio, non falsa precisione.** Categorie
+  `insufficient` / `limited` / `sufficient` **separate per dominio**:
+  `training_consistency_data_quality`, `performance_data_quality`, `body_data_quality`,
+  `nutrition_data_quality`. La data quality misura **quanto possiamo fidarci di una specifica
+  conclusione** (es. pochi workout bastano a dire "frequenza recente molto bassa" ma non a
+  stimare un trend di performance). Può dipendere, per dominio, da numero osservazioni,
+  recenza, distribuzione temporale, confrontabilità, coverage. **Esporre sempre anche i
+  conteggi/raw evidence**, non solo la categoria. Il Coach deve poter dire "non ho abbastanza
+  dati recenti per concludere X" senza inventare precisione. *(Le soglie numeriche saranno
+  formalizzate in F2.2 con i tipi/aggregatori — non sono congelate qui.)*
+
+- **D017** — **Affidabilità delle metriche per dominio.**
+  - **Training consistency**: distinguere `sessions_count` da `training_days_count` per le
+    finestre; la metrica principale per target/minimum è il **numero di sessioni**;
+    `training_days_count` serve a rilevare più sessioni nello stesso giorno/anomalie. Giorno
+    di calendario **Europe/Rome** (D002).
+  - **Nutrition**: metriche affidabili = `tracked_days`, `tracked_days_ratio`,
+    `nutrition_tracking_consistency`, `avg_calories_on_tracked_days`, `avg_macros_on_tracked_days`,
+    target attivi se presenti. Un giorno senza `nutrition_entries` **≠ 0 kcal** e **≠ dieta non
+    aderente**: è **dato non registrato**. "Tracking" **≠ "adherence"**. Il confronto
+    intake↔target si interpreta **solo sui giorni registrati**, accompagnato dalla data
+    quality. Un eventuale legame frequenza-allenamento ↔ frequenza-tracking va descritto come
+    **co-variazione/pattern osservato**, non correlazione causale.
+  - **Performance**: **non** usare `weight*reps` come metrica primaria di forza. Preferire dati
+    strutturati (`best_recent_set` {weight, reps, date}, `recent_performance_history`,
+    `comparable_recent_sessions`, `all_time_reference` **ricalcolato da `session_exercises`**,
+    tonnage solo per confronti omogenei sullo stesso esercizio). Un `estimated 1RM` è **proxy
+    opzionale** (F2.2), marcato come stima, non obbligatorio. `personal_records` **non** è
+    source of truth finché persiste il problema del formato per-serie → **ricalcolare** i
+    riferimenti. `RPE` è **segnale opzionale** quando presente. **D008** resta vincolante: un
+    vecchio PR non determina il carico di ripartenza.
+  - **PlanFitReport**: deterministico e **parziale** (coerente con D013). Può includere plan day
+    count, compatibilità strutturale con target/minimum sessions, esercizi/giorno, serie totali/
+    giorno, **proxy** di complessità/durata (dichiarato come proxy), conflitti con esercizi
+    evitati/limitazioni. Il fuzzy matching testuale **non** è vincolo autoritativo: distinguere
+    **`confirmed_conflicts`** (alta confidenza) da **`possible_conflicts`** (fuzzy/ambigui, da
+    mostrare/verificare, mai motivo automatico di modifica). **Nessun** tag muscolare manuale,
+    durata manuale esercizi o nuovo campo di tracking in Fase 2.1/2.2.
+
+- **D018** — **Flusso ibrido Restart: codice aggrega, AI propone, utente conferma.** Ordine
+  vincolante: (1) codice legge dati **error-honest**; (2) codice costruisce **RestartBaseline**
+  deterministica; (3) codice calcola **DataQuality**; (4) codice produce **PlanFitReport**;
+  (5) l'utente risponde **solo** alle domande manuali realmente necessarie (adattive/minime,
+  D013: safety ad alta priorità = nuovi dolori/limitazioni e disponibilità cambiata;
+  condizionali = calo di forza percepito soprattutto se `performance_data_quality`
+  limited/insufficient, readiness quando cambia davvero la calibrazione della proposta; un
+  cambio di disponibilità/limitazioni **non** viene duplicato nel Restart ma proposto come
+  **aggiornamento esplicito/confermato dell'Athlete Profile**, che resta source of truth);
+  (6) l'AI riceve Profile + Baseline + DataQuality + PlanFit + risposte necessarie; (7) l'AI
+  produce una **proposta strutturata, non una write**; (8) il codice valida schema/coerenza/
+  guardrail; (9) la UI mostra proposta + perché + dati usati + incertezze + review date; (10)
+  l'utente **conferma**; (11) solo allora il codice **persiste** Assessment e Strategy; (12) le
+  modifiche a Workout Plan/Mesocycle/Diet avvengono **solo dopo conferma esplicita** (D007). Un
+  mesociclo/piano attivo viene **rilevato** dall'Assessment; l'AI può proporre keep/modify/
+  replace/supersede; il Restart **non** chiude né sostituisce automaticamente un mesociclo attivo.
+
+- **D019** — **`user_stats.baseline_tonnage` resta della gamification.** Il campo legacy
+  **non** viene riusato come Restart Baseline e **non** riceve nuova semantica. Restano separati.
+
 ---
 
 ## Revisioni

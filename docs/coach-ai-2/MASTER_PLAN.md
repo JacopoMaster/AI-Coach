@@ -77,6 +77,16 @@ Legenda campi per fase:
 - **Criteri di accettazione**: il Restart **non assume i vecchi carichi** (D008);
   produce una baseline persistita usata dal Training System.
 - **Fuori scope**: programmazione mesocicli completa (→ Fase 4).
+- **Architettura (design F2.1, decisioni D014–D019)**: cinque entità distinte —
+  **Athlete Profile** (chi è) · **Restart Assessment** (fatti, immutabile/auditabile) ·
+  **Training Strategy** (decisione, una sola `active`) · **Workout Plan** · **Mesocycle** (D014).
+  Baseline **deterministica ed error-honest** a finestre **4/8/12** settimane (D015); **data
+  quality per dominio** senza falsa precisione (D016); metriche affidabili + **PlanFit parziale**
+  con `confirmed`/`possible` conflicts (D017); **flusso ibrido** codice→AI(proposta)→validazione→
+  conferma utente (D007/D018); `user_stats.baseline_tonnage` resta gamification (D019).
+- **Sotto-task**: **F2.1** design (docs) · **F2.2** baseline/data-quality/PlanFit (aggregation
+  layer) · **F2.3** schema DB (`014`) · **F2.4** API assessment · **F2.5** AI strategy proposal ·
+  **F2.6** conferma/persistenza (D007) · **F2.7** Restart UI · **F2.8** Decision Center (UI iniziale).
 
 ---
 

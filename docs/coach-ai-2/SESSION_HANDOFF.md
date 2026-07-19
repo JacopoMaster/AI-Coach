@@ -42,12 +42,17 @@
 
 - **Data**: 2026-07-19
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `84d69ff feat(admin): gate admin routes behind allowlist +
-  POST/confirm (P0.3)` (prima: `bafac1e`, `50fca65`, `86bfeb6`, `d40d5fa`). `main` ahead di
-  `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
+- **Ultimo commit (locale)**: `59a9669 feat(coach): expose athlete profile as read-only context`
+  (Fase 1: `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`, `50fca65`).
+  `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.1 — Restart / Training Strategy: Design & Architecture** (**DONE**, solo documentale):
+    decisioni **D014–D019** aggiunte a `DECISIONS.md`; roadmap **F2.1→F2.8** e sezione "Fase 2 —
+    Restart (design)" consolidate in `BACKLOG.md`/`CURRENT_STATE.md`; nota architetturale in
+    `MASTER_PLAN.md`. **Nessun codice/migrazione/DB.**
   - **Fase 0** — P0.1 (`50fca65`), P0.2 (`bafac1e`), P0.3 (`84d69ff`) tutte **committate**.
+    **Fase 1** — F1.1–F1.5 tutte **committate** (fino a `59a9669`).
   - **F1.5 — Esposizione read-only del profilo al Coach** (**DONE** — verificata manualmente sul
     runtime del Coach; **completa la Fase 1**):
     - profilo aggiunto al **contesto pre-caricato** del Coach (`fetchUserContext`, path
@@ -115,15 +120,11 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F1.5)**: `npx tsc --noEmit` OK; `npm run build` OK (`/api/coach` compilata);
-  test puri formatter (coach-context + completeness in CJS) **20/20**; `git diff --check` pulito.
-  **Verifica manuale runtime del Coach ancora da fare** (checklist F1.5 sotto).
-- **Stato working tree (F1.5)**: nuovo `lib/profile/coach-context.ts`; modificati
-  `app/api/coach/route.ts` (+profilo nel contesto pre-caricato) e `lib/ai/system-prompt.ts`
-  (+guardrail profilo) + i 3 docs. **Nessuna** modifica DB/migration/RLS/Profile UI/Profile API;
-  nessuna capacità write aggiunta al Coach.
-- **Checklist verifica manuale Coach (F1.5)** — da eseguire in locale con profilo reale, senza
-  modificare il profilo:
+- **Test eseguiti (F2.1)**: nessuno (task **solo documentale** — nessun codice/SQL). Validazione:
+  `git diff --check` pulito; modificati **solo** i docs `coach-ai-2/`.
+- **Stato working tree (F2.1)**: modificati solo `docs/coach-ai-2/{DECISIONS,CURRENT_STATE,BACKLOG,
+  SESSION_HANDOFF,MASTER_PLAN}.md`. **Nessun** file applicativo/migration/DB toccato.
+- **Checklist verifica manuale Coach (F1.5)** — **eseguita e superata** (registrata per riferimento):
   1. "Qual è secondo te il mio obiettivo principale?" → il Coach cita l'obiettivo dal profilo reale.
   2. "Quante volte allenarmi in una settimana normale e se ho una settimana difficile?" → distingue
      target e minimum; non tratta il minimo come fallimento.
@@ -153,18 +154,32 @@
 - **File estranei da NON includere in eventuali commit**:
   - `.claude/settings.local.json` — config locale.
   - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
-- **Decisioni rilevanti**: **D012** (confini Athlete Profile), **D013** (minimo attrito di
-  tracking), **D009** riformulata, D003/D004/D005 (schedule min/target, flessibilità),
-  D006 (`explanation_detail`), D002, D001/D011.
-- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (F1.1 `569f5fc`, F1.2 `e25db80`,
-  F1.3 `ea460d2`, F1.4 `68fa809`, F1.5 in commit in questa sessione — verifica manuale Coach OK).
-- **Prossimo task**: **Fase 2 — September Restart** (design/implementazione; baseline **solo** da
-  metriche già presenti in `body_measurements` + performance/frequenza/aderenza, **no girovita** —
-  D008/D009). **Non ancora iniziata.**
-- **File da leggere per la Fase 2**:
-  - `MASTER_PLAN.md` (Fase 2), `DECISIONS.md` (D008/D009), `lib/profile/*`,
-    `supabase/migrations/002_mesocycles.sql`, `user_stats.baseline_tonnage`.
-- **Nota**: **Fase 1 (Athlete Profile) COMPLETATA** — F1.1–F1.5 tutte DONE e verificate. Prossima: Fase 2.
+- **Decisioni rilevanti**: **D014** (confini entità Restart), **D015** (baseline error-honest
+  4/8/12), **D016** (data quality per dominio), **D017** (affidabilità metriche + PlanFit),
+  **D018** (flusso ibrido codice→AI→conferma), **D019** (baseline_tonnage separato); + D008/D009,
+  D007, D012/D013, D002.
+- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 avviata** —
+  **F2.1 design DONE** (docs, questo task).
+- **Prossimo task**: **F2.2 — Restart Baseline + Data Quality + PlanFit (aggregation layer)**.
+  Vincoli **espliciti** per F2.2:
+  - **NESSUN** DB/migration; **NESSUNA** AI; **NESSUNA** UI; **NESSUNA** persistenza Assessment/Strategy.
+  - Helper server-side **deterministici ed error-honest** (query riuscita-senza-dati ≠ errore;
+    **vietato** riusare gli `executeTool` del Coach che mascherano errori come `[]`).
+  - Finestre **4/8/12** settimane; giorno di calendario **Europe/Rome** (D002, `lib/date/app-date`).
+  - **Nutrition**: giorno senza `nutrition_entries` **≠ zero** e ≠ non-aderente (solo giorni tracciati).
+  - **Performance**: `personal_records` **non** autoritativo → **ricalcolo da `session_exercises`**
+    (`computeExerciseTonnage`); no `weight*reps` come metrica primaria; RPE opzionale; D008.
+  - **`user_stats.baseline_tonnage` NON usato**.
+  - **PlanFit parziale**: `confirmed_conflicts` vs `possible_conflicts` separati (no fuzzy autoritativo);
+    nessun tag muscolare/durata manuale/nuovo campo.
+  - **Test** su dati **insufficient / limited / sufficient** per dominio (le soglie numeriche si
+    formalizzano qui, in F2.2).
+- **File da leggere per F2.2**:
+  - `CURRENT_STATE.md` (sezione "Fase 2 — Restart (design)"), `DECISIONS.md` (D014–D019),
+    `lib/workouts/tonnage.ts`, `lib/diet/daily-totals.ts` (pattern error-honest), `lib/date/app-date.ts`,
+    `lib/profile/{server,types}.ts`, `lib/ai/tools.ts` (query di riferimento, **non** riusare),
+    `supabase/migrations/{001,002,006,011}*.sql`.
+- **Nota**: **Fase 1 COMPLETATA**; **F2.1 (design) DONE**. F2.2 è il prossimo task — **non** iniziato.
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

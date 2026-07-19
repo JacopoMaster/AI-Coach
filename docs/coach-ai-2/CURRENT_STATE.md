@@ -376,7 +376,76 @@ particolare cautela sui valori **stimati** (body fat e composizione).
 
 > **Fase 1 — Athlete Profile: COMPLETATA** (F1.1 design, F1.2 migration `013`, F1.3 application
 > layer, F1.4 Profile UI, F1.5 esposizione read-only al Coach). Prossima: **Fase 2 — September
-> Restart** (non iniziata).
+> Restart** (F2.1 design DONE).
+
+---
+
+## Fase 2 — September Restart (design consolidato, F2.1)
+
+> Design approvato il 2026-07-19. Decisioni: **D014–D019**. **Nessun codice/migrazione ancora.**
+> Prossimo task: **F2.2** (aggregation layer). Le nuove tabelle nascono in **F2.3** (migration `014`).
+
+### Entità e confini (D014)
+- **Athlete Profile** = chi è l'utente (tratti stabili, D012). — **Restart Assessment** = *cosa
+  sappiamo* (fotografia **fattuale immutabile e auditabile**). — **Training Strategy** = *cosa
+  concludiamo/proponiamo* (decisione **attiva**, **una sola `active`/utente**). — **Workout Plan**
+  = esercizi/serie/reps. — **Mesocycle** = periodo concreto. Mai mescolati.
+
+### Baseline Restart (F2.2, deterministica, error-honest — D015)
+- Finestre annidate **4 / 8 / 12** settimane (max 12); performance recente privilegia **8**;
+  all-time solo riferimento; < 12 settimane → usare il disponibile e rifletterlo nella data
+  quality. Giorno di calendario **Europe/Rome** (D002).
+- Domini: **training_consistency** (`sessions_count` **e** `training_days_count` per finestra —
+  metrica principale = **sessioni**; giorni per anomalie/più-sessioni-stesso-giorno;
+  `days_since_last_session`, trend), **performance** (per esercizio: `best_recent_set`{weight,
+  reps,date}, history recente, sessioni confrontabili, `all_time_reference` **ricalcolato da
+  `session_exercises`**, tonnage solo per confronti omogenei; 1RM stimato = proxy opzionale;
+  D008), **body** (peso+trend osservati; body_fat/masse **stimate**, bassa confidence; `bmi`
+  derivato; **no girovita**), **nutrition** (`tracked_days`, `tracked_days_ratio`,
+  `nutrition_tracking_consistency`, medie **solo sui giorni registrati**, target attivo se
+  presente), **adherence** (co-variazione osservata tracking↔allenamento, **non** causale).
+- **Error honesty (obbligatoria)**: «query riuscita senza dati» = assenza; «query fallita» =
+  errore. **Vietato** riusare gli `executeTool` del Coach (mascherano errori come `[]`). Un
+  errore DB **non** diventa `insufficient data`.
+
+### Data quality per dominio (D016)
+- Categorie `insufficient`/`limited`/`sufficient` **separate**:
+  `training_consistency_data_quality`, `performance_data_quality`, `body_data_quality`,
+  `nutrition_data_quality`. Misura la fiducia in **una conclusione specifica**. **Esporre sempre
+  i conteggi/raw evidence**, non solo la categoria. **Soglie numeriche NON congelate qui** →
+  formalizzate in F2.2 con tipi/aggregatori.
+
+### PlanFitReport (parziale, D017/D013)
+- Determinabile: plan day count, compatibilità con target/minimum sessions, esercizi/giorno,
+  serie totali/giorno, **proxy** durata/complessità (dichiarato proxy), conflitti con esercizi
+  evitati/limitazioni. **`confirmed_conflicts`** (alta confidenza) vs **`possible_conflicts`**
+  (fuzzy/ambigui, da verificare, mai modifica automatica). **Non** determinabile: durata reale,
+  distribuzione volume per gruppo muscolare. **Nessun** tag muscolare/durata manuale/nuovo campo.
+- `personal_records` **non** autoritativo (problema formato per-serie) → ricalcolo; `RPE`
+  opzionale; **`user_stats.baseline_tonnage` NON usato** (resta gamification, D019).
+
+### Flusso ibrido (D018)
+Codice legge error-honest → costruisce RestartBaseline → calcola DataQuality → produce
+PlanFitReport → l'utente risponde **solo** alle domande minime adattive (safety: nuovi
+dolori/limitazioni, disponibilità cambiata; condizionali: calo forza percepito se
+`performance_data_quality` limited/insufficient, readiness se cambia la calibrazione; cambi di
+disponibilità/limitazioni → **aggiornamento esplicito del Profilo**, source of truth) → l'AI
+riceve Profile+Baseline+DataQuality+PlanFit+risposte e produce una **proposta strutturata (non
+write)** → codice valida schema/coerenza/guardrail → UI mostra proposta+perché+dati+incertezze+
+review date → utente **conferma** (D007) → codice persiste Assessment+Strategy → modifiche a
+Plan/Mesocycle/Diet **solo dopo conferma**. Mesociclo attivo: **rilevato**, mai chiuso/sostituito
+automaticamente (transizione in F2.6).
+
+### Nuove tabelle (concettuali, SENZA SQL — nascono in F2.3, migration `014`)
+- **`restart_assessments`** (immutabile): `id`, `user_id`, `created_at`, `analysis_period_start/end`,
+  scalari baseline chiave, `*_data_quality` (text+CHECK), `performance_by_exercise` (JSONB
+  bounded), `planfit` (bounded), risposte manuali, `observations`, `status`. RLS per-utente
+  (SELECT/INSERT/UPDATE, no DELETE), trigger `set_updated_at`.
+- **`training_strategies`**: `id`, `user_id`, `status` (`active`/`superseded`/`completed`, **una
+  sola active**), `strategy_type`, `primary_objective`, `start_date`, `review_date`,
+  `target/minimum_sessions_per_week`, `priorities`, `rationale`, `summary`, `risks_uncertainties`,
+  `based_on_assessment_id`, `workout_plan_id?`, `supersedes_id?`, timestamps. RLS per-utente,
+  trigger `set_updated_at`, CHECK `minimum ≤ target`. Stile F1.2 (text+CHECK named, idempotente).
 
 ---
 
