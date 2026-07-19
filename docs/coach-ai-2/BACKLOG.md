@@ -7,25 +7,40 @@
 
 ## Prossimi task — Fase 2 (September Restart)
 
-> **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 avviata**: **F2.1 design
-> DONE** (docs). Prossimo task: **F2.2** (Restart Baseline + Data Quality + PlanFit aggregation
-> layer). Riferimenti: D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
+> **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 in corso**: F2.1 design DONE,
+> **F2.2 DONE** (aggregation layer `lib/restart/`, real-data verification superata). Prossimo task:
+> **F2.3** (schema DB, migration `014`). Riferimenti: D008/D009,
+> **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
 - [x] **DONE — F2.1 · Design & Architecture Restart / Training Strategy** (docs). Entità e confini
   (D014), baseline error-honest/auditabile a finestre 4/8/12 (D015), data quality per dominio
   (D016), affidabilità metriche + PlanFit parziale (D017), flusso ibrido codice→AI→conferma
   (D018), `baseline_tonnage` separato (D019). Design completo in `CURRENT_STATE.md`.
-- [ ] **TODO — F2.2 · Restart Baseline + Data Quality + PlanFit (aggregation layer)**. Helper
-  server-side **deterministici ed error-honest** che producono `RestartBaseline` (training/
-  performance/body/nutrition/adherence, finestre 4/8/12, Europe/Rome), `DataQuality` per dominio
-  (+ raw evidence) e `PlanFitReport` parziale (confirmed vs possible conflicts). **NESSUN** DB/
-  migration/AI/UI/persistenza. `personal_records` non autoritativo (ricalcolo da
-  `session_exercises`); `nutrition` missing ≠ zero; `user_stats.baseline_tonnage` non usato.
-  Test su dati insufficient/limited/sufficient. **← prossimo.**
+- [x] **DONE — F2.2 · Restart Baseline + Data Quality + PlanFit (aggregation layer)**.
+  **Real-data verification superata** (baseline reale coerente: training 3/4/9, quality
+  sufficient/limited/limited/insufficient, PlanFit A/B `below`/`equal`, nutrition 0 giorni ≠ 0 kcal).
+  Bug reale trovato e corretto in diagnostica: `session_exercises.rpe` (PostgreSQL **42703**) →
+  colonna **droppata in migration 011**, rimossa dalla query `sessions`. Correzioni semantiche
+  post-verifica: PlanFit `plan_days_vs_target`/`plan_days_vs_minimum` (fattuale, non giudizio),
+  **`estimated_1rm` rimosso**, body `days_since_latest_measurement`+freshness, performance
+  `highest_load_recent_set` (tie-break data recente). Test **71/71**; tsc/build OK. **Nessuna
+  persistenza, nessuna AI, nessun DB/migration/RLS**; route dev di verifica **eliminata**. Dominio
+  `lib/restart/` (13 file): `types.ts`,
+  `thresholds.ts` (soglie centralizzate/documentate), `windows.ts` (finestre 4/8/12 + serie ISO
+  12w, Europe/Rome), `queries.ts` (letture **error-honest**), `training.ts`, `performance.ts`
+  (parsing new/legacy via helper tonnage condiviso; `personal_records` **non** letto; ricalcolo da
+  `session_exercises`; `highest_load_recent_set`, **no** estimated 1RM), `body.ts` (trend
+  first-vs-last + `days_since_latest_measurement`, metriche bilancia device-derived), `nutrition.ts`
+  (riusa `getDailyNutritionTotals`; missing ≠ zero; medie sui soli giorni tracciati), `plan-fit.ts`
+  (`plan_days_vs_target/minimum` fattuale; confirmed vs possible conflicts; durata `unavailable`),
+  `data-quality.ts` (4 classificatori puri), `errors.ts` (`RestartBaselineQueryError{source,code}`),
+  `baseline.ts` (`buildRestartBaseline`, atomico, no `allSettled`). Esteso `lib/workouts/tonnage.ts`
+  (export `parseLegacyReps`, additivo). `user_stats.baseline_tonnage`/`diet_logs` non usati; output
+  serializzabile e bounded.
 - [ ] **TODO — F2.3 · Schema DB Restart Assessment + Training Strategy**. Migration `014`
   (`restart_assessments` immutabile + `training_strategies`, RLS per-utente, trigger
-  `updated_at`, una sola strategy `active`). Applicazione manuale + verifica (come F1.2).
+  `updated_at`, una sola strategy `active`). Applicazione manuale + verifica (come F1.2). **← prossimo.**
 - [ ] **TODO — F2.4 · Assessment application/API layer**. Calcolo baseline + persistenza
   Assessment; read strategia attiva. Errori generici stile P0.3.
 - [ ] **TODO — F2.5 · AI Strategy Proposal (strutturata)**. Schema Zod + provider + **validazione

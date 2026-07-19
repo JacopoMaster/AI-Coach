@@ -47,6 +47,20 @@
   `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.2 — Restart Baseline + Data Quality + PlanFit (aggregation layer)** (**DONE** —
+    real-data verification superata):
+    - dominio `lib/restart/` (11 file): funzioni pure separate dalle query; `buildRestartBaseline(
+      supabase, userId, analysisDate?)` → `RestartBaseline` serializzabile/bounded;
+    - finestre 4/8/12 (Europe/Rome, D002) + serie ISO 12w; training (`sessions_count` vs
+      `training_days_count`, zeri inclusi); performance per-esercizio (parsing new/legacy via
+      tonnage condiviso; **`personal_records` non letto**; e1RM opzionale marcato `estimated`);
+      body (trend first-vs-last, metriche bilancia device-derived); nutrition (missing ≠ zero,
+      medie sui soli giorni tracciati); PlanFit (confirmed vs possible conflicts, durata
+      `unavailable`); 4 data-quality per dominio (copertura del dato ≠ costanza);
+    - **error-honest** (`if(error) throw`; mai `data || []`); atomico (no `allSettled`);
+    - esteso `lib/workouts/tonnage.ts` (`export parseLegacyReps`, additivo);
+    - **NESSUN** DB/migration/RLS/AI/UI/persistenza; `baseline_tonnage`/`diet_logs` non usati;
+      profilo read-only; tsc/build OK; **54 asserzioni pure** superate.
   - **F2.1 — Restart / Training Strategy: Design & Architecture** (**DONE**, solo documentale):
     decisioni **D014–D019** aggiunte a `DECISIONS.md`; roadmap **F2.1→F2.8** e sezione "Fase 2 —
     Restart (design)" consolidate in `BACKLOG.md`/`CURRENT_STATE.md`; nota architetturale in
@@ -120,10 +134,35 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F2.1)**: nessuno (task **solo documentale** — nessun codice/SQL). Validazione:
-  `git diff --check` pulito; modificati **solo** i docs `coach-ai-2/`.
-- **Stato working tree (F2.1)**: modificati solo `docs/coach-ai-2/{DECISIONS,CURRENT_STATE,BACKLOG,
-  SESSION_HANDOFF,MASTER_PLAN}.md`. **Nessun** file applicativo/migration/DB toccato.
+- **Test eseguiti (F2.2)**: `npx tsc --noEmit` OK; `npm run build` OK; **71 asserzioni pure**
+  superate (moduli reali compilati in CJS via tsconfig progetto + resolve-hook `@/`); `git diff
+  --check` pulito; **real-data verification superata**. Ricerche finali pulite (vedi sotto).
+- **Stato working tree (F2.2)**: dominio `lib/restart/` (13 file) + `lib/workouts/tonnage.ts`
+  (export additivo). Route dev di verifica **eliminata**. **Nessun** DB/migration/RLS/AI/UI/persistenza.
+- **Diagnostica error-honest (permanente, in F2.2)**: `lib/restart/errors.ts`
+  (`RestartBaselineQueryError{source,code,cause}`); `queries.ts` e `baseline.ts` etichettano ogni
+  sorgente con il proprio `source`. Migliora l'error-honesty senza mascherare nulla.
+- **Verifica real-data (F2.2) — SUPERATA**. Bug reale trovato/corretto: `session_exercises.rpe`
+  (PostgreSQL `42703`, stage `sessions`) → colonna **droppata in migration 011**, rimossa dalla
+  query. Applicate **4 correzioni semantiche**: (1) PlanFit `plan_days_vs_target`/`plan_days_vs_minimum`
+  (below/equal/above/unknown) — confronto **fattuale**, non giudizio di compatibilità; (2) **rimosso
+  `estimated_1rm`**; (3) body `days_since_latest_measurement` + `classifyBody` con **recenza**
+  (sufficient solo se ultima ≤28g; >84g → insufficient); (4) `best_recent_set` →
+  **`highest_load_recent_set`** (carico più alto, tie-break data più recente). Test **71/71**.
+  **Route dev di verifica eliminata** (`app/api/dev/restart-baseline`, non committata). Baseline
+  reale validata: training 3/4/9, quality sufficient/limited/limited/insufficient. → **DONE.**
+- **Checklist verifica baseline reale (F2.2)** — **eseguita e superata** (registrata per riferimento):
+  1. `buildRestartBaseline(supabase, userId)` ritorna senza errori e serializza in JSON.
+  2. `training_consistency`: 3/4/9 sessioni (4/8/12w) coerenti; `weekly_series_12w` 12 bucket;
+     last session 2026-06-26.
+  3. `data_quality.training_consistency` = **sufficient** (copertura storica).
+  4. `performance`: `highest_load_recent_set` {weight,reps,date}; `historical_reference_52w`
+     bounded 52w e **non** da `personal_records`; **nessun `estimated_1rm`**.
+  5. `body`: `days_since_latest_measurement=71`; quality **limited**; metriche bilancia `device_derived`.
+  6. `nutrition`: `tracked_days=0`, quality **insufficient**; giorni non registrati **non** = 0 kcal.
+  7. `plan_fit`: A/B → `plan_day_count=2`, `plan_days_vs_target=below`, `plan_days_vs_minimum=equal`
+     (confronto fattuale, nessun verdict); nessun mesociclo attivo; `duration_assessability = unavailable`.
+  8. Nessun `user_id`/dato sensibile esposto.
 - **Checklist verifica manuale Coach (F1.5)** — **eseguita e superata** (registrata per riferimento):
   1. "Qual è secondo te il mio obiettivo principale?" → il Coach cita l'obiettivo dal profilo reale.
   2. "Quante volte allenarmi in una settimana normale e se ho una settimana difficile?" → distingue
@@ -158,28 +197,18 @@
   4/8/12), **D016** (data quality per dominio), **D017** (affidabilità metriche + PlanFit),
   **D018** (flusso ibrido codice→AI→conferma), **D019** (baseline_tonnage separato); + D008/D009,
   D007, D012/D013, D002.
-- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 avviata** —
-  **F2.1 design DONE** (docs, questo task).
-- **Prossimo task**: **F2.2 — Restart Baseline + Data Quality + PlanFit (aggregation layer)**.
-  Vincoli **espliciti** per F2.2:
-  - **NESSUN** DB/migration; **NESSUNA** AI; **NESSUNA** UI; **NESSUNA** persistenza Assessment/Strategy.
-  - Helper server-side **deterministici ed error-honest** (query riuscita-senza-dati ≠ errore;
-    **vietato** riusare gli `executeTool` del Coach che mascherano errori come `[]`).
-  - Finestre **4/8/12** settimane; giorno di calendario **Europe/Rome** (D002, `lib/date/app-date`).
-  - **Nutrition**: giorno senza `nutrition_entries` **≠ zero** e ≠ non-aderente (solo giorni tracciati).
-  - **Performance**: `personal_records` **non** autoritativo → **ricalcolo da `session_exercises`**
-    (`computeExerciseTonnage`); no `weight*reps` come metrica primaria; RPE opzionale; D008.
-  - **`user_stats.baseline_tonnage` NON usato**.
-  - **PlanFit parziale**: `confirmed_conflicts` vs `possible_conflicts` separati (no fuzzy autoritativo);
-    nessun tag muscolare/durata manuale/nuovo campo.
-  - **Test** su dati **insufficient / limited / sufficient** per dominio (le soglie numeriche si
-    formalizzano qui, in F2.2).
-- **File da leggere per F2.2**:
-  - `CURRENT_STATE.md` (sezione "Fase 2 — Restart (design)"), `DECISIONS.md` (D014–D019),
-    `lib/workouts/tonnage.ts`, `lib/diet/daily-totals.ts` (pattern error-honest), `lib/date/app-date.ts`,
-    `lib/profile/{server,types}.ts`, `lib/ai/tools.ts` (query di riferimento, **non** riusare),
-    `supabase/migrations/{001,002,006,011}*.sql`.
-- **Nota**: **Fase 1 COMPLETATA**; **F2.1 (design) DONE**. F2.2 è il prossimo task — **non** iniziato.
+- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 in corso** —
+  F2.1 design DONE (`0e7e788`), **F2.2 DONE** (aggregation layer, real-data verification superata; in attesa
+  di verifica su baseline reale).
+- **Prossimo task**: **F2.3 — Schema DB Restart Assessment + Training Strategy** (migration `014`:
+  `restart_assessments` immutabile + `training_strategies`, RLS per-utente, trigger `set_updated_at`,
+  una sola strategy `active`). Stile F1.2 (text+CHECK named, idempotente, applicazione manuale +
+  verifica). La forma dei campi è informata da `RestartBaseline` (F2.2) — vedi `lib/restart/types.ts`.
+- **File da leggere per F2.3**:
+  - `CURRENT_STATE.md` ("Nuove tabelle" + "Stato F2.2"), `DECISIONS.md` (D014/D015),
+    `lib/restart/types.ts`, `supabase/migrations/{013_athlete_profiles,006_spiral_energy}.sql`
+    (pattern RLS/trigger/idempotenza).
+- **Nota**: **F2.2 DONE** (real-data verification superata; route dev eliminata). Prossimo: **F2.3** — non iniziato.
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

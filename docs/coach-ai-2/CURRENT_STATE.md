@@ -397,9 +397,11 @@ particolare cautela sui valori **stimati** (body fat e composizione).
   quality. Giorno di calendario **Europe/Rome** (D002).
 - Domini: **training_consistency** (`sessions_count` **e** `training_days_count` per finestra —
   metrica principale = **sessioni**; giorni per anomalie/più-sessioni-stesso-giorno;
-  `days_since_last_session`, trend), **performance** (per esercizio: `best_recent_set`{weight,
-  reps,date}, history recente, sessioni confrontabili, `all_time_reference` **ricalcolato da
-  `session_exercises`**, tonnage solo per confronti omogenei; 1RM stimato = proxy opzionale;
+  `days_since_last_session`, trend), **performance** (per esercizio: `highest_load_recent_set`
+  {weight,reps,date} = **carico più alto** osservato, ties → data più recente, **no** weight*reps;
+  history recente, sessioni confrontabili, `historical_reference_52w` **ricalcolato da
+  `session_exercises`** (bounded 52w, **non** all-time), tonnage solo per confronti omogenei;
+  **estimated 1RM rimosso** in F2.2 (nessuna semantica affidabile del tipo di carico → falsa precisione);
   D008), **body** (peso+trend osservati; body_fat/masse **stimate**, bassa confidence; `bmi`
   derivato; **no girovita**), **nutrition** (`tracked_days`, `tracked_days_ratio`,
   `nutrition_tracking_consistency`, medie **solo sui giorni registrati**, target attivo se
@@ -416,13 +418,17 @@ particolare cautela sui valori **stimati** (body fat e composizione).
   formalizzate in F2.2 con tipi/aggregatori.
 
 ### PlanFitReport (parziale, D017/D013)
-- Determinabile: plan day count, compatibilità con target/minimum sessions, esercizi/giorno,
-  serie totali/giorno, **proxy** durata/complessità (dichiarato proxy), conflitti con esercizi
+- Determinabile: plan day count, **confronto fattuale** `plan_days_vs_target`/`plan_days_vs_minimum`
+  (`below`/`equal`/`above`/`unknown`) — **NON** un giudizio di compatibilità: un piano A/B (2 giorni)
+  può girare 3×/settimana in rotazione, quindi `plan_day_count` ≠ frequenza prescritta; l'AI
+  interpreterà. Inoltre esercizi/giorno, serie totali/giorno, conflitti con esercizi
   evitati/limitazioni. **`confirmed_conflicts`** (alta confidenza) vs **`possible_conflicts`**
   (fuzzy/ambigui, da verificare, mai modifica automatica). **Non** determinabile: durata reale,
   distribuzione volume per gruppo muscolare. **Nessun** tag muscolare/durata manuale/nuovo campo.
 - `personal_records` **non** autoritativo (problema formato per-serie) → ricalcolo; `RPE`
-  opzionale; **`user_stats.baseline_tonnage` NON usato** (resta gamification, D019).
+  **non disponibile** nello schema reale (colonna `session_exercises.rpe` **droppata in
+  migration 011**) → **non selezionata/usata** in F2.2; **`user_stats.baseline_tonnage` NON
+  usato** (resta gamification, D019).
 
 ### Flusso ibrido (D018)
 Codice legge error-honest → costruisce RestartBaseline → calcola DataQuality → produce
@@ -435,6 +441,49 @@ write)** → codice valida schema/coerenza/guardrail → UI mostra proposta+perc
 review date → utente **conferma** (D007) → codice persiste Assessment+Strategy → modifiche a
 Plan/Mesocycle/Diet **solo dopo conferma**. Mesociclo attivo: **rilevato**, mai chiuso/sostituito
 automaticamente (transizione in F2.6).
+
+### Stato F2.2 (DONE — aggregation layer, real-data verification superata)
+- Nuovo dominio **`lib/restart/`** (11 file, funzioni pure separate dalle query):
+  `types.ts` (tipo serializzabile `RestartBaseline`), `thresholds.ts` (soglie **centralizzate e
+  documentate**), `windows.ts` (finestre inclusive 4w=28d/8w=56d/12w=84d + serie ISO 12 settimane,
+  Europe/Rome D002), `queries.ts` (letture **error-honest**: `if(error) throw` + `data ?? []`;
+  `maybeSingle` per righe opzionali; solo read), `training.ts` (`sessions_count` vs
+  `training_days_count`, `weekly_series` con zeri), `performance.ts` (per-esercizio; parsing new/
+  legacy via helper tonnage condiviso; **`personal_records` non letto** → `historical_reference_52w`
+  ricalcolato da `session_exercises` entro 52w (nome inequivocabile, **non** all-time);
+  `highest_load_recent_set` (carico più alto, tie-break data più recente); **estimated 1RM rimosso**;
+  tonnage = volume non forza), `body.ts` (trend first-vs-last; **`days_since_latest_measurement`**
+  per la recenza; body_fat/muscle marcate `device_derived`),
+  `nutrition.ts` (riusa `getDailyNutritionTotals`; **giorno non tracciato ≠ 0 kcal**; medie sui
+  soli giorni tracciati), `plan-fit.ts` (`plan_days_vs_target`/`plan_days_vs_minimum` =
+  confronto **fattuale** below/equal/above/unknown, **non** un giudizio di compatibilità;
+  `confirmed_conflicts` = match esatto normalizzato vs avoided; `possible_conflicts` = overlap
+  ambiguo "da verificare"; durata `unavailable`),
+  `data-quality.ts` (4 classificatori puri per dominio — **copertura del dato, non costanza**),
+  `errors.ts` (`RestartBaselineQueryError` con `source`/`code` + `cause` server-side, per
+  diagnosticare **quale stage** fallisce senza mascherare né esporre dati sensibili),
+  `baseline.ts` (`buildRestartBaseline(supabase, userId, analysisDate?)`, **atomico**, no
+  `allSettled`; ogni sorgente etichettata con il proprio `source`).
+- Esteso `lib/workouts/tonnage.ts`: `export parseLegacyReps` (additivo, per non duplicare il parser).
+- **Data quality (regole F2.2)**: training = **copertura storica** (`insufficient` se nessuna
+  history; `limited` se history < 56 giorni; `sufficient` se ≥ 56 giorni — anche con **zero
+  sessioni recenti**); performance per-esercizio (0→insufficient, 1–2→limited, ≥3 comparable
+  recent→sufficient, finestra 8w); body ora considera anche la **recenza** (`days_since_latest_measurement`):
+  ≤1 misura **oppure** ultima > **84g** → insufficient; ≥3 distinte con span ≥14g **e** ultima ≤ **28g**
+  → sufficient; altrimenti limited (caso reale: 2 misure, span 12, ~71g → **limited**); nutrition su
+  28g (≤3→insufficient, ≥14 tracked & span ≥21g→sufficient, altrimenti
+  limited). Sempre esposti i **raw evidence** accanto alla categoria.
+- **NESSUN** DB/migration/RLS/AI/UI/persistenza; `user_stats.baseline_tonnage` non usato;
+  `diet_logs` non usato; profilo **read-only** via `getAthleteProfile`; nessuna query ignora gli
+  errori Supabase; output serializzabile e **bounded** (recent_history ≤8/esercizio, esercizi ≤40,
+  weekly_series 12). tsc/build OK; **71 asserzioni pure** superate.
+- **Real-data verification superata** (baseline reale coerente: training 3/4/9, last session
+  2026-06-26, quality sufficient/limited/limited/insufficient, PlanFit A/B `below`/`equal`,
+  nutrition 0 giorni **≠ 0 kcal**, body `days_since_latest_measurement=71` → limited). In fase di
+  verifica trovato/corretto un bug reale: `session_exercises.rpe` selezionata ma **droppata in
+  migration 011** (PostgreSQL **42703**) → rimossa dalla query `sessions` (RPE non esiste più nello
+  schema reale). Route dev di verifica (`app/api/dev/restart-baseline`) **eliminata** (non committata).
+  **Stato: DONE.**
 
 ### Nuove tabelle (concettuali, SENZA SQL — nascono in F2.3, migration `014`)
 - **`restart_assessments`** (immutabile): `id`, `user_id`, `created_at`, `analysis_period_start/end`,

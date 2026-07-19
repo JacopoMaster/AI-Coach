@@ -15,7 +15,7 @@ export interface TonnageInput {
 
 /** Parse legacy reps_done which may be '8-12' style range or a single integer.
  *  Ranges use the low end (conservative for PR / Giga Drill detection). */
-function parseLegacyReps(reps: string | number | null | undefined): number {
+export function parseLegacyReps(reps: string | number | null | undefined): number {
   if (reps == null) return 0
   if (typeof reps === 'number') return reps
   const m = reps.match(/\d+/)
