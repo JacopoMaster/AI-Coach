@@ -42,43 +42,43 @@
 
 - **Data**: 2026-07-19
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `bafac1e feat(date): resolve app calendar dates in Europe/Rome`
-  (prima: `50fca65`, `86bfeb6`, `d40d5fa`). `main` ahead di `origin/main` — **nessun push**.
-  Refactor AIErrorClass/logging isolato sul branch `feat/ai-error-logging` (`8d8cd67`).
+- **Ultimo commit (locale)**: `84d69ff feat(admin): gate admin routes behind allowlist +
+  POST/confirm (P0.3)` (prima: `bafac1e`, `50fca65`, `86bfeb6`, `d40d5fa`). `main` ahead di
+  `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
+  `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
-  - **P0.1 — Unificazione dieta** su `nutrition_entries` → **committato** (`50fca65`).
-  - **P0.2 — Date applicative Europe/Rome** (D002) → **committato** (`bafac1e`).
-  - **P0.3 — Sicurezza route admin** (**in attesa di commit/approvazione**):
-    - nuovo helper server-only `lib/auth/admin.ts` (unica autorità admin):
-      `getAdminUserIds()`, `isAdminUserId(userId)`, `requireAdmin(supabase)`; allowlist
-      `ADMIN_USER_IDS` (UUID Supabase, split virgola/trim/ignore-empty, **fail-closed**);
-      match **esatto** su `user.id`; non logga l'allowlist;
-    - `/api/admin/hard-reset` e `/api/admin/recover-xp`: **GET rimosso** (→ Next 405),
-      aggiunto **POST** con gate **401** (anonimo) → **403** (non-admin) → **400** (confirm
-      body-only mancante/errato: `HARD_RESET` / `RECOVER_XP`);
-    - errori **500 generici** + response `entries[]` di recover-xp sanificata
-      (`error:'recovery_failed'`, no messaggi/codici Supabase); **log server PII-free**
-      (no user.id/session.id/email/data/stat/errore-Supabase/env/body);
-    - **semantica invariata**: entrambe operano solo su `user.id` autenticato, nessun
-      accesso cross-user; scope non ampliato. Nessun caller UI attivo.
-- **Test eseguiti**:
-  - `npx tsc --noEmit` → OK; `npm run build` → OK; `git diff --check` → pulito.
-  - Verifica statica helper reale (scratchpad, type-stripping Node 24, no dipendenze) →
-    **18/18** (fail-closed, parse trim/ignore-empty, match esatto, userId null/empty).
-  - Ricerca finale: **nessun** `export async function GET` nelle route admin.
-- **Stato working tree** (pre-commit): 2 file tracked (`app/api/admin/hard-reset/route.ts`,
-  `app/api/admin/recover-xp/route.ts`) + untracked `lib/auth/admin.ts`.
-- **File estranei da NON includere nel commit P0.3**:
+  - **Fase 0** — P0.1 (`50fca65`), P0.2 (`bafac1e`), P0.3 (`84d69ff`) tutte **committate**.
+  - **F1.1 — Athlete Profile: Design & Architecture Audit** (docs, **nessun codice**):
+    - modello `athlete_profiles` consolidato con le revisioni del 2026-07-19 — vedi
+      `CURRENT_STATE.md` → "Fase 1 — Athlete Profile" (schema, colonne finali, `restart_ready`);
+    - **revisioni applicate**: rimossi `current_phase` e `restart_preferences` (stato di
+      programmazione → Training Strategy/Restart); aggiunti `secondary_goals` (text[]) e
+      `schedule_notes` (text); liste → **`text[]`** (no JSONB); `restart_ready` esteso
+      (include `preferred_training_days`, `available_equipment`, `training_limitations`
+      risposto); convenzione array `null`=non risposto / `[]`=nessuno;
+    - **D012** aggiunta (confini profilo); **D009 riformulata** (no girovita); **D013**
+      aggiunta ("minimo attrito di tracking");
+    - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
+      baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
+- **Test eseguiti**: nessuno (task solo-documentale, nessun codice/SQL modificato).
+- **Stato working tree**: solo docs modificate (`CURRENT_STATE.md`, `DECISIONS.md`,
+  `BACKLOG.md`, `SESSION_HANDOFF.md`). Nessun file applicativo/migrazione.
+- **File estranei da NON includere in eventuali commit**:
   - `.claude/settings.local.json` — config locale.
   - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
-- **Env da configurare (Vercel, server-side)**: `ADMIN_USER_IDS=uuid1,uuid2,...` (senza
-  `NEXT_PUBLIC_`). Se assente/vuota → nessun admin (fail-closed). **Nessun UUID hardcoded.**
-- **Decisioni rilevanti**: P0.3 non introduce una nuova decisione (allineato a sicurezza
-  Fase 0). D002 (P0.2), D001/D011 (P0.1), D010.
-- **Stato fase**: **Fase 0 COMPLETATA** (P0.1+P0.2 committate, P0.3 pending commit).
-  **Non iniziare la Fase 1** senza indicazione.
-- **Prossimo task**: **Fase 1 — Athlete Profile** (non iniziata). Prima definire schema
-  profilo ed esposizione al Coach.
+- **Decisioni rilevanti**: **D012** (confini Athlete Profile), **D013** (minimo attrito di
+  tracking), **D009** riformulata, D003/D004/D005 (schedule min/target, flessibilità),
+  D006 (`explanation_detail`), D002, D001/D011.
+- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 in corso** (F1.1 design **committato**).
+- **Prossimo task**: **F1.2 — creare `supabase/migrations/013_athlete_profiles.sql`** con
+  **tabella** (colonne finali da CURRENT_STATE), **constraint** (CHECK named + `text[]` per
+  le liste + CHECK di riga min≤target/preferred), **RLS** per-utente (SELECT/INSERT/UPDATE)
+  e **`updated_at`** (trigger). Idempotente (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`).
+  **Non creare la migration prima del task dedicato.** API di F1.3 userà **PATCH** (update
+  parziale); F1.5 = esposizione **read-only** al Coach (no modifica autonoma).
+- **File da leggere nel prossimo task (F1.2)**:
+  - `CURRENT_STATE.md` (colonne finali), `DECISIONS.md` (D012), `supabase/migrations/006_*`,
+    `005_*` (pattern RLS/trigger/idempotenza), `002_mesocycles.sql` (stile CHECK named).
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

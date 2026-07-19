@@ -4,7 +4,7 @@
 > Distingue ciò che è verificabile dal repository da ciò che è stato accertato a livello
 > di DB/produzione (fatti forniti/riscontrati fuori dal codice). Aggiornare quando cambia.
 
-Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `bafac1e`
+Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `84d69ff` (P0.3 committato)
 
 ---
 
@@ -170,6 +170,107 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `bafac1e`
   reali verificati dell'utente il **massimo carico registrato è 80 kg**: allo stato attuale
   l'achievement **deve quindi restare bloccato** (soglia 100 kg non raggiunta). Da rivedere
   la lettura dei carichi per-serie in una fase dedicata, senza sbloccarlo artificialmente.
+
+---
+
+## Fase 1 — Athlete Profile (design consolidato, F1.1)
+
+> Design approvato con le revisioni del 2026-07-19. **Nessun codice / migrazione ancora.**
+> Confini formalizzati in **D012**. La tabella `athlete_profiles` verrà creata in **F1.2**.
+
+### Schema concettuale finale
+- **1 riga per utente**, `user_id` PK/FK → `auth.users(id) ON DELETE CASCADE`.
+- Contiene **solo** caratteristiche/vincoli/preferenze **stabili** (D012). **Niente**
+  prescrizioni né stato di programmazione (→ `workout_plans`/`diet_plans`/`mesocycles`/
+  futura Training Strategy) e **niente** misure fisiche (→ `body_measurements`).
+- **Colonne scalari** per campi stabili e interrogabili; **`text[]`** per le liste (nessun
+  JSONB: dopo la rimozione di `restart_preferences` non resta alcuna necessità strutturale
+  JSONB — `text[]` è più semplice, tipizzato e nativo Postgres).
+- Vincoli **CHECK named** (`text` + CHECK, non ENUM nativi) per coerenza con lo stile
+  esistente e reversibilità. Nessun indice oltre la PK (accesso sempre per `user_id`).
+- Tutti i campi **nullable** (compilazione progressiva); creazione riga **lazy via upsert**
+  (no trigger su `auth.users`) — alternativa trigger da valutare in F1.2/F1.3.
+
+### Colonne previste per `athlete_profiles` (lista finale)
+Identity: `user_id` (uuid PK/FK), `birth_date` (date), `sex` (text CHECK male/female),
+`height_cm` (smallint CHECK 100–250).
+Goal: `primary_goal` (text CHECK), **`secondary_goals` (text[])** *(nuovo — obiettivi
+multipli, es. primary=return_to_consistency, secondary={recomp,strength})*, `goal_notes` (text).
+*(rimosso `current_phase` → stato di programmazione, appartiene a Training Strategy/Restart.)*
+Experience: `experience_level` (text CHECK beginner/intermediate/advanced),
+`years_training` (numeric(3,1)).
+Schedule (D003/D004): `target_sessions_per_week` (smallint CHECK 1–7),
+`minimum_sessions_per_week` (smallint CHECK 1–7), `preferred_training_days` (text[]),
+`preferred_session_duration_minutes` (smallint CHECK 10–240),
+`minimum_session_duration_minutes` (smallint CHECK 10–240). CHECK di riga:
+`minimum_* <= target_*`/`preferred_*` quando entrambi non null.
+Training prefs: `preferred_exercises` (text[]), `avoided_exercises` (text[]),
+`available_equipment` (text[]).
+Limitations (non-medicale): `training_limitations` (text[] tag funzionali),
+`injuries_or_pain_notes` (text libero auto-riferito).
+Lifestyle: `work_pattern` (text CHECK), **`schedule_notes` (text, nullable)** *(nuovo —
+disponibilità/orari rilevanti non rappresentabili dal solo `work_pattern`; **non** un
+calendario strutturato)*, `daily_activity_level` (text CHECK), `preferred_training_time`
+(text CHECK).
+Adherence (D005): `main_training_barriers` (text[]), `main_nutrition_barriers` (text[]).
+*(rimosso `restart_preferences` → info temporanee (start_month, fase restart, data
+ripartenza) appartengono a Restart/Training Strategy.)*
+Nutrition: `nutrition_goal` (text CHECK), `dietary_preferences` (text[]),
+`dietary_restrictions` (text[]), `allergies` (text[] — sensibile), `cooking_availability`
+(text CHECK none/low/medium/high).
+Coaching: `coaching_style` (text CHECK), `explanation_detail` (text CHECK — supporta D006),
+`flexibility_preference` (text CHECK — supporta D003/D004/D005).
+Meta: `created_at` (timestamptz), `updated_at` (timestamptz).
+
+**Array `text[]`** (11): `secondary_goals`, `preferred_training_days`, `preferred_exercises`,
+`avoided_exercises`, `available_equipment`, `training_limitations`, `main_training_barriers`,
+`main_nutrition_barriers`, `dietary_preferences`, `dietary_restrictions`, `allergies`.
+Convenzione: **`null` = non ancora risposto**, **`[]` = risposta esplicita "nessuno"**.
+
+### Completezza profilo (derivata, non persistita)
+Stati: `not_started` / `partial` / `restart_ready` / `complete`. **`restart_ready`** =
+tutti i seguenti **non null** (per gli array, non null anche se `[]`):
+`primary_goal`, `experience_level`, `target_sessions_per_week`, `minimum_sessions_per_week`,
+`preferred_training_days`, `preferred_session_duration_minutes`,
+`minimum_session_duration_minutes`, `available_equipment`, e `training_limitations`
+**esplicitamente risposto** (`[]` = "nessuna" è valido). Derivata da un helper server
+condiviso (F1.3), **mai** un booleano persistito (D012).
+
+### Baseline corporea del futuro September Restart (metriche)
+Il Restart (Fase 2) costruirà la baseline **solo dai dati già raccolti**, senza nuove
+misurazioni manuali. Userà, **dove disponibili e solo se utili alle decisioni**:
+peso e **trend** del peso; `body_fat_pct` e trend; massa grassa; massa muscolare;
+grasso viscerale; altre metriche `body_measurements` esistenti quando realmente utili;
+**performance/forza** negli allenamenti; **frequenza reale** di allenamento; **aderenza
+alimentare**. **Nessuna nuova colonna** in `body_measurements` in questa fase.
+**`waist_cm`/girovita NON è un requisito** di Restart, Decision Center o Nutrition Coach.
+
+### Classificazione metriche Body/FitDays (`body_measurements`)
+Il futuro Coach **non** deve trattare ogni valore della bilancia come verità assoluta.
+Distinguere:
+- **Misure osservate** nel tempo: `weight_kg` (peso reale sulla bilancia), `date`.
+- **Stime prodotte dalla bilancia** (impedenziometria, meno affidabili in lettura singola):
+  `body_fat_pct`, `muscle_mass_kg`, `water_pct`, `bone_mass_kg`, `visceral_fat`,
+  `bmr`, `metabolic_age`.
+- **Metriche derivate**: `bmi` (da peso+altezza).
+
+Logica futura (documentata, **non** implementata ora — per Restart e Decision Center):
+privilegiare **trend nel tempo**, **coerenza tra più segnali**, **andamento delle
+performance**, **aderenza e frequenza**, rispetto alla **singola lettura isolata** — con
+particolare cautela sui valori **stimati** (body fat e composizione).
+
+---
+
+## Principi di prodotto
+
+- **Minimo attrito di tracking** (**D013**) — *Preferire dati già raccolti automaticamente o
+  abitualmente (Body/FitDays → `body_measurements`, allenamenti, aderenza) rispetto a nuove
+  misurazioni manuali, quando queste ultime non cambiano in modo significativo le decisioni
+  del Coach.* Formalizzata come **D013** in `DECISIONS.md`. Motiva la rimozione del girovita
+  manuale (D009 riformulata) e guiderà scelte future su cosa chiedere all'utente.
+- **Segnali > lettura singola** — le decisioni sulla composizione corporea si basano su
+  trend e coerenza multi-segnale, non su una singola metrica stimata dalla bilancia (vedi
+  classificazione FitDays sopra).
 
 ---
 

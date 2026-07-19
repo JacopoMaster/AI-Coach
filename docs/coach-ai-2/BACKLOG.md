@@ -5,12 +5,30 @@
 
 ---
 
-## Prossimi task — P0 (Fase 0, in ordine)
+## Prossimi task — Fase 1 (Athlete Profile, in ordine)
 
-> **Fase 0 completata.** Prossima fase: **Fase 1 — Athlete Profile** (non ancora iniziata).
+> **Fase 0 completata.** Fase 1 avviata con il **design F1.1** (docs). Prossimo task
+> implementativo: **F1.2** (migration `013_athlete_profiles`).
 
-### DONE in attesa di commit
-- [x] **DONE (pending commit) — P0.3 · Sicurezza route admin**. Helper server-only
+- [x] **DONE — F1.1 · Design & Architecture Audit** (docs). Modello `athlete_profiles`
+  consolidato (vedi `CURRENT_STATE.md` → "Fase 1 — Athlete Profile") + confini **D012** +
+  D009 riformulata (no girovita). Nessun codice/migrazione.
+- [ ] **TODO — F1.2 · Migration `013_athlete_profiles`**. Tabella (colonne finali da
+  CURRENT_STATE) + CHECK named + `text[]` per le liste + RLS per-utente (SELECT/INSERT/UPDATE)
+  + trigger `updated_at`. **Idempotente** (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`).
+  Prossimo numero progressivo `013`; verificare stato reale DB prima di applicare. **← prossimo.**
+- [ ] **TODO — F1.3 · Tipi + validation + server helpers + API**. `AthleteProfile` in
+  `lib/types.ts`, `lib/profile/*` (read/write + `completeness.ts` derivata), route
+  `app/api/profile` **GET/PATCH** (aggiornamento parziale progressivo; upsert lazy; errori
+  generici stile P0.3). Convenzione array: `null`=non risposto, `[]`=nessuno.
+- [ ] **TODO — F1.4 · Profile UI / onboarding progressivo**. Form a blocchi + disclaimer
+  limitazioni (non-medicale) + indicatore completezza derivato.
+- [ ] **TODO — F1.5 · Esposizione read-only del profilo al Coach**. Tool
+  `get_athlete_profile` + guardrail anti-diagnosi nel system prompt. **Read-only**: il Coach
+  **non** ottiene ancora la capacità autonoma di modificare il profilo.
+
+### DONE (commit `84d69ff`)
+- [x] **DONE — P0.3 · Sicurezza route admin**. Helper server-only
   `lib/auth/admin.ts` (`getAdminUserIds`, `isAdminUserId`, `requireAdmin`) con allowlist
   `ADMIN_USER_IDS` (UUID Supabase, comma-separated, trim, ignore-empty, **fail-closed**).
   `/api/admin/hard-reset` e `/api/admin/recover-xp`: rimosso l'handler **GET** (mutation
@@ -63,14 +81,19 @@
 ### Fase 0 — Stabilizzazione minima ✅ COMPLETATA
 - **DONE**: P0.1 unificazione dieta (commit `50fca65`).
 - **DONE**: P0.2 date applicative Europe/Rome (commit `bafac1e`).
-- **DONE (pending commit)**: P0.3 sicurezza admin (helper `lib/auth/admin`, POST+allowlist+confirm).
+- **DONE**: P0.3 sicurezza admin (commit `84d69ff`).
 
 ### Fase 1 — Athlete Profile
-- **TODO**: definire schema profilo (obiettivi, esperienza, disponibilità, durata,
-  preferenze, limitazioni, alimentazione) e esposizione al Coach.
+- **F1.1 DONE** (design). **F1.2–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima.
+  Modello e confini in `CURRENT_STATE.md` + **D012**.
 
 ### Fase 2 — September Restart
-- **TODO**: assessment, baseline, fase Restart, strategia salvata (D008).
+- **TODO**: assessment, baseline, fase Restart, strategia salvata (D008). La **baseline
+  corporea** usa **solo** metriche già presenti in `body_measurements` (peso/trend, body fat/
+  trend, masse, viscerale) + performance/frequenza/aderenza — **nessuna nuova misurazione**.
+- **NON pianificato / fuori scope**: `waist_cm`/girovita e qualunque task tipo "F2.0 supporto
+  waist_cm". Decisione di prodotto (D009 riformulata): niente tracking manuale del girovita,
+  non è requisito di Restart/Decision Center/Nutrition Coach. **Non reintrodurre.**
 
 ### Fase 3 — Decision Center
 - **TODO**: vista obiettivo/fase/priorità/rationale/rivalutazione + "Perché?" (D006).
