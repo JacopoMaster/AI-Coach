@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { DietPlan, WorkoutPlan } from '@/lib/types'
-import { LogOut, Loader2, Wrench, Swords, Trophy, Layers } from 'lucide-react'
+import Link from 'next/link'
+import { LogOut, Loader2, Wrench, Swords, Trophy, Layers, User, ChevronRight } from 'lucide-react'
 import { PushNotificationsCard } from '@/components/settings/push-notifications-card'
 import { SummerEpisodeCard } from '@/components/settings/summer-episode-card'
 import {
@@ -102,6 +103,22 @@ export default function SettingsPage() {
             Logout
           </Button>
         </CardContent>
+      </Card>
+
+      {/* Athlete Profile entry point */}
+      <Card>
+        <Link href="/profile" className="block">
+          <CardContent className="flex items-center gap-3 p-4">
+            <User className="h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Profilo atleta</p>
+              <p className="text-xs text-muted-foreground">
+                Obiettivi, disponibilità, preferenze e stile di coaching.
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+          </CardContent>
+        </Link>
       </Card>
 
       {/* Push notifications (Proactive Coach) */}

@@ -48,7 +48,24 @@
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
   - **Fase 0** — P0.1 (`50fca65`), P0.2 (`bafac1e`), P0.3 (`84d69ff`) tutte **committate**.
-  - **F1.3 — Athlete Profile application layer** (**DONE** — implementazione, DB non toccato):
+  - **F1.4 — Profile UI / onboarding progressivo** (**DONE** — verificata manualmente sul runtime):
+    - pagina `app/(app)/profile/page.tsx` + entry point in Settings (`/profile`); no bottom-nav,
+      no redirect obbligatori (onboarding non bloccante);
+    - 7 card collassabili con **salvataggio indipendente per blocco**; consuma `GET/PATCH /api/profile`;
+    - PATCH invia **solo i campi cambiati** della sezione (diff vs baseline server); semantica
+      omesso/`null`/`[]` preservata da `lib/profile/patch-diff.ts` (helper puri);
+    - status card usa `completeness` **dell'API** + `getMissingRestartFields` (aggiunto a
+      `completeness.ts`) per i campi mancanti in italiano; nessun ricalcolo del tier nel client;
+    - validazioni client (primary∈secondary, min>target) + server autoritativo; errori generici;
+      disclaimer non-medicale; **non** esposto al Coach;
+    - componenti `components/profile/*`, label `lib/profile/labels.ts`; nessuna nuova dipendenza;
+    - tsc/build OK; verifica statica logica pura **22/22**; ricerca finale: UI usa solo `/api/profile`,
+      nessun accesso client diretto a `athlete_profiles`, Coach non usa il profilo. DB/API/RLS invariati;
+    - **verifica manuale runtime superata**: entry point Config→Profilo atleta, `/profile` accessibile,
+      dati precompilati, salvataggio indipendente per sezione, persistenza dopo reload, semantica
+      `null` vs `[]` corretta, validazioni di coerenza, aggiornamento completeness; UX adeguata come
+      sottomenu non invasivo.
+  - **F1.3 — Athlete Profile application layer** (**DONE** — commit `ea460d2`):
     - dominio `lib/profile/`: `types.ts` (tipo `AthleteProfile` + vocabolari `as const`
       condivisi con Zod), `schema.ts` (PATCH Zod strict che preserva omesso/`null`/`[]`;
       range/enum/no-dup; `validateProfileCoherence` su existing+patch), `completeness.ts`
@@ -86,13 +103,29 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F1.3)**: `npx tsc --noEmit` OK; `npm run build` OK (`/api/profile`
-  registrata); verifica statica logica pura (moduli reali compilati in CJS, `NODE_PATH` →
-  node_modules progetto) **35/35**; **test manuale end-to-end in locale con sessione
-  autenticata reale superato** (percorso Auth/API/Supabase/RLS/trigger); `git diff --check` pulito.
-- **Stato working tree**: nuovi file untracked `lib/profile/{types,schema,completeness,server}.ts`,
-  `app/api/profile/route.ts` + docs modificate (`CURRENT_STATE.md`, `BACKLOG.md`,
-  `SESSION_HANDOFF.md`). Nessuna migration/DB/RLS toccati.
+- **Test eseguiti (F1.4)**: `npx tsc --noEmit` OK; `npm run build` OK (`/profile` registrata);
+  verifica statica logica pura (patch-diff + completeness compilati in CJS) **22/22**;
+  `git diff --check` pulito; **verifica manuale UI runtime superata** (checklist sotto tutta OK).
+- **Stato working tree (F1.4)**: nuovi `app/(app)/profile/page.tsx`, `components/profile/*`
+  (4 file), `lib/profile/labels.ts`, `lib/profile/patch-diff.ts`; modificati
+  `app/(app)/settings/page.tsx`, `lib/profile/completeness.ts` (+export `RESTART_READY_KEYS`/
+  `getMissingRestartFields`) + i 3 docs. Nessuna migration/DB/RLS/API-route toccati.
+- **Checklist verifica manuale UI (F1.4)** — **eseguita e superata** in locale con sessione
+  autenticata (registrata per riferimento):
+  1. Aprire Config → "Profilo atleta" apre `/profile` senza crash (profilo esistente precompilato).
+  2. Con profilo assente/nuovo utente: status card = "Costruiamo il tuo profilo" (not_started).
+  3. Compilare **solo** Obiettivi → Salva → la richiesta contiene solo i campi Obiettivi.
+  4. Ricaricare la pagina → i valori salvati sono precompilati.
+  5. In Allenamento, senza toccare Limitazioni, salvare altro → `training_limitations` resta
+     `null` (non diventa `[]`).
+  6. Cliccare "Nessuna limitazione" → Salva → `training_limitations=[]`.
+  7. In Alimentazione "Nessuna allergia segnalata" → `allergies=[]`; senza toccarla resta `null`.
+  8. In "La tua settimana reale": nessun giorno selezionato resta `null`; "Nessun giorno preferito"
+     → `[]`; selezione giorni → lista `mon…`.
+  9. Impostare `secondary_goals` = primary_goal → salvataggio bloccato con messaggio.
+  10. Impostare sessioni minime > ideali → bloccato/errore comprensibile.
+  11. Dopo un salvataggio la status card (partial/restart_ready/complete) riflette la response server.
+  12. Simulare errore PATCH (es. offline) → messaggio generico, i dati a schermo restano.
 - **File estranei da NON includere in eventuali commit**:
   - `.claude/settings.local.json` — config locale.
   - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
@@ -100,16 +133,14 @@
   tracking), **D009** riformulata, D003/D004/D005 (schedule min/target, flessibilità),
   D006 (`explanation_detail`), D002, D001/D011.
 - **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 in corso** (F1.1 `569f5fc`, F1.2 `e25db80`,
-  **F1.3 DONE** — application layer, non ancora committato).
-- **Prossimo task**: **F1.4 — Profile UI / onboarding progressivo**: form a blocchi che consuma
-  `GET/PATCH /api/profile`, indicatore di completezza (usa `getProfileCompleteness`), disclaimer
-  non-medicale sul blocco limitazioni. Rispettare la semantica PATCH omesso/`null`/`[]` lato client.
-  F1.5 = esposizione **read-only** al Coach.
-- **File da leggere/usare nel prossimo task (F1.4)**:
-  - `lib/profile/*` (tipi/schema/completeness/server), `app/api/profile/route.ts`,
-    `app/(app)/settings/page.tsx` (pattern form/fetch), `components/ui/*`, `CURRENT_STATE.md`.
-- **Nota**: F1.3 è **DONE** — implementato, verificato staticamente (35/35) **e end-to-end in
-  locale con sessione autenticata reale** (Auth/API/Supabase/RLS/trigger OK).
+  F1.3 `ea460d2`; **F1.4 DONE** — verificata manualmente, in commit in questa sessione).
+- **Prossimo task**: **F1.5 — esposizione read-only del profilo al Coach** (tool
+  `get_athlete_profile` + guardrail anti-diagnosi nel system prompt; il Coach **non** ottiene
+  ancora la capacità di modificare il profilo).
+- **File da leggere/usare in F1.5**:
+  - `lib/profile/{server,types,completeness}.ts`, `lib/ai/tools.ts`, `lib/ai/system-prompt.ts`,
+    `app/api/coach/route.ts`.
+- **Nota**: F1.4 è **DONE** (verifica manuale UI superata). F1.5 non ancora iniziata.
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

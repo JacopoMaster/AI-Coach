@@ -308,6 +308,38 @@ particolare cautela sui valori **stimati** (body fat e composizione).
   → 400; PATCH con `user_id` → 400. **Auth/API/Supabase/RLS/trigger verificati funzionanti.**
   Lo **schema DB non è stato modificato** (solo application layer). Non esposto al Coach (→ F1.5).
 
+### Stato F1.4 (DONE — Profile UI, verificata manualmente sul runtime)
+- **Pagina** `app/(app)/profile/page.tsx` (route `/profile`, dentro il gruppo `(app)` → auth via
+  layout) + **entry point** in `app/(app)/settings/page.tsx` (card link "Profilo atleta").
+  **Nessuna** voce aggiunta alla bottom-nav; nessun redirect obbligatorio (onboarding non bloccante).
+- **UX**: 7 **card collassabili** (Obiettivi, Esperienza, La tua settimana reale, Allenamento,
+  Contesto/stile di vita, Alimentazione, Come vuoi essere seguito), ognuna con **salvataggio
+  indipendente**; mobile-first, coerente col design system esistente (Card/Button/Input/Select/
+  Textarea + lucide). Nessuna nuova dipendenza.
+- **PATCH per-sezione**: ogni salvataggio invia **solo i campi cambiati** della sezione (diff vs
+  baseline = ultimo profilo dal server). Semantica **omesso/`null`/`[]`** preservata da helper
+  puri `lib/profile/patch-diff.ts` (`eqValue`/`hasChanges`/`buildSectionPatch`). Il caricamento
+  di un campo `null` **non** lo converte in `[]`; `[]` è inviato solo su risposta esplicita
+  ("Nessuno/Nessuna limitazione/allergia/giorno…"); `null` solo su clear esplicito.
+- **Completezza**: status card usa la `completeness` **restituita dall'API** (mai ricalcolata come
+  tier nel client); l'elenco dei campi essenziali mancanti usa il helper puro condiviso
+  `getMissingRestartFields` (aggiunto a `completeness.ts`, stessa source of truth) tradotto in
+  label italiane (`RESTART_FIELD_LABELS`). Stati: not_started/partial/restart_ready/complete;
+  restart_ready/complete mostrano solo uno **stato informativo** (nessun pulsante "Avvia Restart").
+- **Validazioni client** (oltre al server): blocco salvataggio su `primary_goal ∈ secondary_goals`
+  e `min>target` (sessioni/durate) con messaggio; il server resta l'autorità (400 gestito con
+  messaggi generici user-friendly, nessun dettaglio Supabase).
+- **Limitazioni**: disclaimer non-medicale; nessuna diagnosi richiesta. **Non** esposto al Coach.
+- **File**: `components/profile/{athlete-profile-form,profile-section,profile-status-card,controls}.tsx`,
+  `lib/profile/{labels,patch-diff}.ts`, export aggiunti a `lib/profile/completeness.ts`.
+- Verifiche: `tsc --noEmit` OK, `build` OK (`/profile` registrata), verifica statica logica pura
+  **22/22** (eqValue, buildSectionPatch omesso/null/`[]`/scoping, getMissingRestartFields), e
+  **verifica manuale runtime superata**: entry point Config → Profilo atleta funzionante, pagina
+  `/profile` accessibile, dati esistenti precompilati, salvataggio indipendente per sezione,
+  persistenza dopo reload, semantica `null` vs `[]` corretta, validazioni di coerenza funzionanti,
+  aggiornamento della completeness dalla response; UX giudicata adeguata come sottomenu non
+  invasivo di Config. **DB/API/RLS non modificati.** Stato: **DONE**.
+
 ---
 
 ## Principi di prodotto

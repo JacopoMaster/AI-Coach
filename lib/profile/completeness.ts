@@ -13,7 +13,7 @@ const META_KEYS = ['user_id', 'created_at', 'updated_at'] as const
 
 // Fields September Restart (Fase 2) needs. `training_limitations` must be
 // explicitly answered ([] = "none" is valid). See CURRENT_STATE.md / D012.
-const RESTART_READY_KEYS = [
+export const RESTART_READY_KEYS = [
   'primary_goal',
   'experience_level',
   'target_sessions_per_week',
@@ -24,6 +24,8 @@ const RESTART_READY_KEYS = [
   'available_equipment',
   'training_limitations',
 ] as const satisfies readonly (keyof AthleteProfile)[]
+
+export type RestartReadyKey = (typeof RESTART_READY_KEYS)[number]
 
 // Additional fields required for a "complete" profile, on top of restart_ready.
 // Deliberately EXCLUDES genuinely optional / sensitive / free-text fields
@@ -76,4 +78,15 @@ export function getProfileCompleteness(
   if (!allAnswered(profile, RESTART_READY_KEYS)) return 'partial'
 
   return allAnswered(profile, COMPLETE_EXTRA_KEYS) ? 'complete' : 'restart_ready'
+}
+
+/**
+ * Restart-ready fields still unanswered (null). PURE, and the SAME source of
+ * truth the tier logic uses — the UI reuses this only for a presentational
+ * "N missing" hint; the authoritative tier still comes from the API's
+ * `completeness`. A null profile ⇒ every restart field is missing.
+ */
+export function getMissingRestartFields(profile: AthleteProfile | null): RestartReadyKey[] {
+  if (!profile) return [...RESTART_READY_KEYS]
+  return RESTART_READY_KEYS.filter((k) => !isAnswered(profile, k))
 }

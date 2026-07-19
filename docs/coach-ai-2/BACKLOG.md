@@ -7,8 +7,8 @@
 
 ## Prossimi task — Fase 1 (Athlete Profile, in ordine)
 
-> **Fase 0 completata.** Fase 1 avviata con il **design F1.1** (docs). Prossimo task
-> implementativo: **F1.2** (migration `013_athlete_profiles`).
+> **Fase 0 completata.** Fase 1: F1.1–F1.4 **DONE**. Prossimo task: **F1.5** (esposizione
+> read-only del profilo al Coach).
 
 - [x] **DONE — F1.1 · Design & Architecture Audit** (docs). Modello `athlete_profiles`
   consolidato (vedi `CURRENT_STATE.md` → "Fase 1 — Athlete Profile") + confini **D012** +
@@ -34,11 +34,20 @@
   (GET assente→200/not_started, PATCH lazy-create, omessi preservati, `[]` esplicito, persistenza,
   400 incoerenza target/min, 400 su `user_id`; Auth/API/Supabase/RLS/trigger OK). **Non**
   esposto ancora al Coach (→ F1.5).
-- [ ] **TODO — F1.4 · Profile UI / onboarding progressivo**. Form a blocchi + disclaimer
-  limitazioni (non-medicale) + indicatore completezza derivato. **← prossimo.**
+- [x] **DONE — F1.4 · Profile UI**. Pagina `app/(app)/profile/page.tsx` + entry point in
+  Settings (`/profile`). Form a **card collassabili** con **salvataggio indipendente per blocco**
+  (7 blocchi), consuma `GET/PATCH /api/profile`; PATCH invia **solo i campi cambiati** della
+  sezione (diff vs baseline server); semantica `null`/`[]`/omesso preservata (helper puri
+  `lib/profile/patch-diff.ts`); status card usa la `completeness` **dell'API** (+
+  `getMissingRestartFields`); blocco save su conflitto primary/secondary e min>target; disclaimer
+  non-medicale; errori generici. Componenti `components/profile/*`, label `lib/profile/labels.ts`.
+  tsc/build OK; verifica statica logica pura **22/22**; **verifica manuale UI runtime superata**
+  (entry point Config, `/profile` accessibile, dati precompilati, salvataggio indipendente,
+  persistenza dopo reload, semantica null/`[]`, validazioni coerenza, aggiornamento completeness;
+  UX adeguata come sottomenu non invasivo). Prossimo task: **F1.5**.
 - [ ] **TODO — F1.5 · Esposizione read-only del profilo al Coach**. Tool
   `get_athlete_profile` + guardrail anti-diagnosi nel system prompt. **Read-only**: il Coach
-  **non** ottiene ancora la capacità autonoma di modificare il profilo.
+  **non** ottiene ancora la capacità autonoma di modificare il profilo. **← prossimo.**
 
 ### DONE (commit `84d69ff`)
 - [x] **DONE — P0.3 · Sicurezza route admin**. Helper server-only
@@ -97,9 +106,9 @@
 - **DONE**: P0.3 sicurezza admin (commit `84d69ff`).
 
 ### Fase 1 — Athlete Profile
-- **F1.1 DONE** (design, commit `569f5fc`). **F1.2 DONE** (migration `013` applicata+verificata,
-  commit `e25db80`). **F1.3 DONE** (application layer: `lib/profile/*` + API GET/PATCH).
-  **F1.4–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima. Modello/confini: `CURRENT_STATE.md` + **D012**.
+- **F1.1 DONE** (design, `569f5fc`). **F1.2 DONE** (migration `013`, `e25db80`).
+  **F1.3 DONE** (application layer, `ea460d2`). **F1.4 DONE** (Profile UI, verificata manualmente).
+  **F1.5 TODO** — vedi "Prossimi task — Fase 1". Modello/confini: `CURRENT_STATE.md` + **D012**.
 
 ### Fase 2 — September Restart
 - **TODO**: assessment, baseline, fase Restart, strategia salvata (D008). La **baseline
