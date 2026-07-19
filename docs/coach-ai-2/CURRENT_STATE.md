@@ -282,6 +282,32 @@ particolare cautela sui valori **stimati** (body fat e composizione).
 - Query di verifica read-only (tabella/colonne/RLS/policy/constraint/trigger/row-count 0)
   incluse **in coda al file** come commenti.
 
+### Stato F1.3 (DONE — application layer, DB non modificato)
+- Nuovo dominio `lib/profile/`:
+  - `types.ts` — tipo `AthleteProfile` (mirror esatto della tabella) + **vocabolari `as const`**
+    (goal, weekday, enum lifestyle/nutrition/coaching…) usati come **unica fonte** sia dai
+    tipi TS sia dallo schema Zod (nessun drift con i CHECK di 013).
+  - `schema.ts` — `AthleteProfilePatchSchema` Zod **strict**: preserva **omesso / `null` / `[]`**
+    (nessun `[]`→null, null→undefined, omesso→null); range (height 100–250, years 0–80,
+    sessioni 1–7, durate 10–240), enum, no-duplicati per `preferred_training_days`/
+    `secondary_goals`; rifiuta `user_id`/`created_at`/`updated_at`/chiavi ignote/patch vuoto (400).
+    `validateProfileCoherence(merged)` verifica **min≤target** sessioni/durate e
+    **primary_goal ∉ secondary_goals** sullo **stato risultante** (existing+patch), non sul solo payload.
+  - `completeness.ts` — `getProfileCompleteness()` **puro**: `not_started`/`partial`/
+    `restart_ready`/`complete` (array: `null`=non risposto, `[]`=risposto). Derivata, non persistita.
+  - `server.ts` — `getAthleteProfile`/`upsertAthleteProfile` (client passato, scope `user_id`,
+    upsert lazy `onConflict:'user_id'`, `updated_at` lasciato a DEFAULT/trigger, **throw** su errore DB).
+- Route `app/api/profile/route.ts` — **GET** (profilo + completezza) e **PATCH** (parziale):
+  401 anonimo → 400 validazione/coerenza → **500 generico** (stile P0.3, nessun dettaglio
+  Supabase); `user_id` deriva **solo** dall'utente autenticato, mai dal body. **Non** esposto al Coach.
+- Verifiche: `npx tsc --noEmit` OK, `npm run build` OK (`/api/profile` registrata), verifica
+  statica logica pura (moduli reali compilati in CJS) **35/35**, e **test manuale end-to-end
+  in locale con sessione autenticata reale** superato: GET profilo assente → 200 `profile:null`
+  + `not_started`; PATCH valido → creazione lazy; PATCH successivo → campi omessi preservati;
+  `[]` preservato come risposta esplicita; GET → dati persistiti; PATCH incoerente target/min
+  → 400; PATCH con `user_id` → 400. **Auth/API/Supabase/RLS/trigger verificati funzionanti.**
+  Lo **schema DB non è stato modificato** (solo application layer). Non esposto al Coach (→ F1.5).
+
 ---
 
 ## Principi di prodotto

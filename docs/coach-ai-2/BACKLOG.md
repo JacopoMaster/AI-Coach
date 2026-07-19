@@ -22,12 +22,20 @@
   presente (schema `public`), 35 colonne, RLS attiva, 3 policy (SELECT/INSERT/UPDATE, no DELETE),
   trigger `trg_athlete_profiles_updated_at` + funzione `public.set_updated_at()` presenti,
   0 righe iniziali.
-- [ ] **TODO — F1.3 · Tipi + validation + server helpers + completezza + API**. `AthleteProfile`
-  in `lib/types.ts`, `lib/profile/*` (read/write + `completeness.ts` derivata), route
-  `app/api/profile` **GET/PATCH** (aggiornamento parziale progressivo; upsert lazy; errori
-  generici stile P0.3). Convenzione array: `null`=non risposto, `[]`=nessuno. **← prossimo.**
+- [x] **DONE — F1.3 · Tipi + validation + server helpers + completezza + API**. Dominio
+  `lib/profile/`: `types.ts` (tipo `AthleteProfile` + vocabolari `as const` condivisi con Zod),
+  `schema.ts` (PATCH Zod **strict** — preserva omesso/`null`/`[]`; range/enum/no-dup;
+  coerenza `validateProfileCoherence` su **existing+patch**), `completeness.ts`
+  (`getProfileCompleteness` puro: not_started/partial/restart_ready/complete), `server.ts`
+  (`getAthleteProfile`/`upsertAthleteProfile`, upsert lazy, throw su errore DB). Route
+  `app/api/profile` **GET/PATCH** (401 anonimo, 400 validazione/coerenza, **500 generico**
+  stile P0.3; `user_id` dal solo utente autenticato). tsc/build OK; verifica statica logica
+  pura **35/35**; **test manuale end-to-end in locale con sessione autenticata reale** superato
+  (GET assente→200/not_started, PATCH lazy-create, omessi preservati, `[]` esplicito, persistenza,
+  400 incoerenza target/min, 400 su `user_id`; Auth/API/Supabase/RLS/trigger OK). **Non**
+  esposto ancora al Coach (→ F1.5).
 - [ ] **TODO — F1.4 · Profile UI / onboarding progressivo**. Form a blocchi + disclaimer
-  limitazioni (non-medicale) + indicatore completezza derivato.
+  limitazioni (non-medicale) + indicatore completezza derivato. **← prossimo.**
 - [ ] **TODO — F1.5 · Esposizione read-only del profilo al Coach**. Tool
   `get_athlete_profile` + guardrail anti-diagnosi nel system prompt. **Read-only**: il Coach
   **non** ottiene ancora la capacità autonoma di modificare il profilo.
@@ -89,9 +97,9 @@
 - **DONE**: P0.3 sicurezza admin (commit `84d69ff`).
 
 ### Fase 1 — Athlete Profile
-- **F1.1 DONE** (design, commit `569f5fc`). **F1.2 DONE** (migration `013` applicata+verificata
-  sul DB reale). **F1.3–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima.
-  Modello e confini in `CURRENT_STATE.md` + **D012**.
+- **F1.1 DONE** (design, commit `569f5fc`). **F1.2 DONE** (migration `013` applicata+verificata,
+  commit `e25db80`). **F1.3 DONE** (application layer: `lib/profile/*` + API GET/PATCH).
+  **F1.4–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima. Modello/confini: `CURRENT_STATE.md` + **D012**.
 
 ### Fase 2 — September Restart
 - **TODO**: assessment, baseline, fase Restart, strategia salvata (D008). La **baseline
