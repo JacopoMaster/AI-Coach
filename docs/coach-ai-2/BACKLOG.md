@@ -7,18 +7,30 @@
 
 ## Prossimi task — P0 (Fase 0, in ordine)
 
-- [ ] **TODO — P0.3 · Sicurezza route admin**. Proteggere le route amministrative con
-  autorizzazione verificata. **← prossimo task.**
+> **Fase 0 completata.** Prossima fase: **Fase 1 — Athlete Profile** (non ancora iniziata).
 
 ### DONE in attesa di commit
-- [x] **DONE (pending commit) — P0.2 · Date applicative Europe/Rome** (D002). Helper
+- [x] **DONE (pending commit) — P0.3 · Sicurezza route admin**. Helper server-only
+  `lib/auth/admin.ts` (`getAdminUserIds`, `isAdminUserId`, `requireAdmin`) con allowlist
+  `ADMIN_USER_IDS` (UUID Supabase, comma-separated, trim, ignore-empty, **fail-closed**).
+  `/api/admin/hard-reset` e `/api/admin/recover-xp`: rimosso l'handler **GET** (mutation
+  non più eseguibili via GET → Next risponde 405), aggiunto **POST** con gate
+  401 (anonimo) → 403 (non-admin) → 400 (confirm mancante/errato). Conferma body-only:
+  `{"confirm":"HARD_RESET"}` e `{"confirm":"RECOVER_XP"}`. Errori 500 resi generici
+  (nessun dettaglio SQL/Supabase al client); log server invariati. **Semantica invariata**:
+  entrambe operano solo sull'utente autenticato (`.eq('user_id', user.id)`), nessun accesso
+  cross-user. tsc/build OK; verifica helper 18/18. Env nuova: `ADMIN_USER_IDS` (server-side,
+  Vercel — nessun UUID hardcoded). Commit suggerito:
+  `feat(admin): gate admin routes behind allowlist + POST/confirm (P0.3)`.
+
+### DONE (commit `bafac1e`)
+- [x] **DONE — P0.2 · Date applicative Europe/Rome** (D002). Helper
   centrale `lib/date/app-date.ts` (`getAppDate`, `addDays`/`subDays`, `getAppDateDaysAgo`,
   `getAppWeekStart`, `getAppDayOfWeek`); `today()` delega all'helper. Migrate le calendar
   date (pasto/pesata/sessione/mesociclo/oggi-Coach), i range "ultimi N giorni", la logica
   settimana/streak/Perfect Week e i cron Next (weight-reminder, proactive-coach). Timestamp
   tecnici UTC invariati; schedule Vercel Cron invariate; Edge Functions Deno e `vacation.ts`
-  fuori scope. tsc/build OK; verifica helper 10/10 (estate/inverno/DST/aritmetica). Commit
-  suggerito: `feat(date): resolve app calendar dates in Europe/Rome (P0.2)`.
+  fuori scope. tsc/build OK; verifica helper 10/10 (estate/inverno/DST/aritmetica).
 
 ### DONE (commit `50fca65`)
 - [x] **DONE — P0.1 · Unificazione dieta** su `nutrition_entries`
@@ -48,10 +60,10 @@
 
 ## Backlog per fase
 
-### Fase 0 — Stabilizzazione minima
+### Fase 0 — Stabilizzazione minima ✅ COMPLETATA
 - **DONE**: P0.1 unificazione dieta (commit `50fca65`).
-- **DONE (pending commit)**: P0.2 date applicative Europe/Rome (helper `lib/date/app-date`).
-- **TODO**: P0.3 sicurezza admin (vedi sopra).
+- **DONE**: P0.2 date applicative Europe/Rome (commit `bafac1e`).
+- **DONE (pending commit)**: P0.3 sicurezza admin (helper `lib/auth/admin`, POST+allowlist+confirm).
 
 ### Fase 1 — Athlete Profile
 - **TODO**: definire schema profilo (obiettivi, esperienza, disponibilità, durata,

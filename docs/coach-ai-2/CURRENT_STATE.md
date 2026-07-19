@@ -4,7 +4,7 @@
 > Distingue ciò che è verificabile dal repository da ciò che è stato accertato a livello
 > di DB/produzione (fatti forniti/riscontrati fuori dal codice). Aggiornare quando cambia.
 
-Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
+Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `bafac1e`
 
 ---
 
@@ -93,6 +93,56 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
   (`supabase/functions/*`, runtime separato, non importano `lib/`) e `lib/gamification/vacation.ts`
   (feature Vacation inerte; aritmetica date-only già UTC-anchored). Segnalati, non modificati.
 
+### Route admin — sicurezza (P0.3 completata, in attesa di commit)
+- **Prima**: `/api/admin/hard-reset` e `/api/admin/recover-xp` esportavano **solo `GET`**
+  (mutation eseguibili via GET) ed erano protette **solo dall'autenticazione Supabase**
+  (`auth.getUser()`): qualsiasi utente autenticato poteva invocarle. I 500 restituivano al
+  client `err.message`/`code` Supabase.
+- **Nuovo helper server-only `lib/auth/admin.ts`** — unica autorità admin del progetto:
+  `getAdminUserIds()` (parse allowlist `ADMIN_USER_IDS`: split virgola, trim, ignore-empty),
+  `isAdminUserId(userId)` (match **esatto** su `user.id`, **fail-closed** se allowlist
+  assente/vuota) e `requireAdmin(supabase)` (getUser → 401 anonimo / 403 non-admin /
+  ok+user). **Non** logga l'allowlist completa; su rifiuto logga solo lo `userId` respinto.
+  Autorizzazione decisa **solo** dall'UUID Supabase, mai da nome/email/query/body/cookie/header.
+- **Route riscritte** (logica interna invariata salvo il minimo):
+  - handler **GET rimosso** su entrambe → Next risponde **405** al GET (nessuna mutation via
+    GET, nessun redirect GET→POST);
+  - **POST** con gate: **401** (non autenticato) → **403** (autenticato non-admin);
+  - `hard-reset`: conferma **body-only** obbligatoria `{"confirm":"HARD_RESET"}`, altrimenti
+    **400** senza modifiche;
+  - `recover-xp`: conferma **body-only** `{"confirm":"RECOVER_XP"}` (mutation XP di massa,
+    idempotente ma potenzialmente estesa; nessun caller attivo → conferma aggiunta per
+    intenzionalità), altrimenti **400**;
+  - **errori 500 generici** (`Internal Server Error`): nessun dettaglio SQL/Supabase/stack/env
+    al client;
+  - **response `entries[]` di recover-xp sanificata**: l'errore per-sessione è un valore
+    generico controllato (`error: 'recovery_failed'`), mai il messaggio/codice Supabase grezzo
+    (rimosso `error_code`); `session_id` mantenuto (risorsa dell'admin stesso, response
+    admin-scoped, chiave per localizzare la sessione fallita);
+  - **log server PII-free** in entrambe le route e nell'helper: solo messaggi tecnici generici
+    + contatori aggregati; **nessun** `user.id`, `session.id`, email, data, valore stat,
+    oggetto errore Supabase, env o request body. Il gate 403 logga
+    `[admin] forbidden admin route access attempt` (nessun identificatore).
+- **Semantica dati (invariata, verificata)**: entrambe le route operano **solo sui dati
+  dell'utente autenticato** (`.eq('user_id', user.id)`); **non** accettano un `userId` e
+  **non** agiscono su altri utenti. `hard-reset` azzera `exp_history`/`user_achievements` e
+  riporta `user_stats` al Day-1 dell'admin; `recover-xp` rigioca `awardExp` sulle sessioni
+  dell'admin. **Nessun accesso cross-user**; scope non ampliato.
+- **Caller**: **nessun caller UI/fetch attivo**. L'unica occorrenza è il precache-manifest
+  Next in `public/sw.js` (chunk delle route della build, non un invocatore).
+- **Env**: nuova `ADMIN_USER_IDS` **server-side** (nessun prefisso `NEXT_PUBLIC_`), da
+  configurare come environment variable su Vercel. Formato `uuid1,uuid2,uuid3`. **Nessun
+  UUID reale hardcoded**; `.env` versionati non toccati; non esiste `.env.example` (solo
+  `.env.local`, gitignorato) → nessun file env creato.
+- **Test**: verifica statica dell'helper reale (funzioni pure) via type-stripping Node 24,
+  **18/18** (fail-closed unset/empty/solo-separatori; parse trim/ignore-empty; match esatto
+  no prefisso/suffisso; userId null/undefined/empty → false). Comportamento HTTP verificato
+  per lettura del codice. Nessun hard-reset/recover reale eseguito sul DB.
+- **Hardening pre-commit (2° giro)**: rimosso `user.id` dal `console.warn` del gate admin;
+  sanificata la response `entries[]` di recover-xp (errori generici, no messaggi/codici
+  Supabase); audit log completo delle due route + helper → nessun log contiene PII o dettagli
+  DB. tsc/build/diff-check ripetuti → OK.
+
 ### Migrazioni — disallineamento tracking vs DB
 - Cartella repo `supabase/migrations/` contiene file fino a **012**
   (001, 002, 00201, 003, 004, 005, 006, 007, 008, 009, 010 ×2, 011, 012).
@@ -123,16 +173,11 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
 
 ---
 
-## Working tree (dopo P0.2, pre-commit)
+## Working tree (dopo P0.3, pre-commit)
 
-P0.1 è committato (`50fca65`). P0.2 modifica (tracked): `lib/utils.ts`, `app/api/diet/route.ts`,
-`app/api/diet/quick-log/route.ts`, `app/api/nutrition/route.ts`, `app/api/check-in/route.ts`,
-`app/api/coach/route.ts`, `app/api/stats/route.ts`, `app/api/body/route.ts`,
-`app/api/body/scan/route.ts`, `app/api/workouts/route.ts`, `lib/ai/tools.ts`,
-`lib/gamification/check-achievements.ts`, `lib/gamification/check-perfect-week.ts`,
-`app/api/cron/weight-reminder/route.ts`, `app/api/cron/proactive-coach/route.ts`,
-`app/(app)/today/page.tsx`, `app/(app)/body/page.tsx`.
-Non tracciato (in scope P0.2): `lib/date/app-date.ts` (nuovo helper).
+P0.1 committato (`50fca65`), P0.2 committato (`bafac1e`). P0.3 modifica (tracked):
+`app/api/admin/hard-reset/route.ts`, `app/api/admin/recover-xp/route.ts`.
+Non tracciato (in scope P0.3): `lib/auth/admin.ts` (nuovo helper server-only).
 
 Fuori scope (invariati, da non includere nel commit):
 - `.claude/settings.local.json` — config locale.
@@ -141,7 +186,8 @@ Fuori scope (invariati, da non includere nel commit):
 Refactor AIErrorClass/logging: isolato sul branch `feat/ai-error-logging`
 (commit `8d8cd67`), **non** su main.
 
-Git: `main` ahead di `origin/main` (`d40d5fa`, `86bfeb6`, `50fca65`). **Nessun push** effettuato.
+Git: `main` ahead di `origin/main` (`d40d5fa`, `86bfeb6`, `50fca65`, `bafac1e`).
+**Nessun push** effettuato.
 
 ---
 

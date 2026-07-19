@@ -4,25 +4,58 @@
 // keeps every PR and weight log and only the EXP/level/achievement layer is
 // rebooted.
 //
+// SCOPE: this route operates exclusively on the authenticated admin's OWN
+// rows (`.eq('user_id', user.id)`). It does not accept a userId and cannot
+// touch other users' data.
+//
+// SECURITY (P0.3):
+//  - method is POST only (no GET mutation, no GET→POST redirect);
+//  - requires an authenticated Supabase user (else 401);
+//  - requires that user to be in the ADMIN_USER_IDS allowlist (else 403);
+//  - requires an explicit JSON body confirmation `{ "confirm": "HARD_RESET" }`
+//    that cannot be supplied via a query string (else 400).
+//
 // Requires migration 012 (RLS INSERT/UPDATE policies). DELETE on exp_history
 // also needs an authenticated DELETE policy — added below in the migration
 // catch-up step. Without it, this route silently no-ops.
 
 import { createClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth/admin'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+const CONFIRM_PHRASE = 'HARD_RESET'
+
+export async function POST(request: Request) {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const admin = await requireAdmin(supabase)
+  if (!admin.ok) {
+    return NextResponse.json(
+      { error: admin.status === 401 ? 'Unauthorized' : 'Forbidden' },
+      { status: admin.status }
+    )
+  }
+  const user = admin.user
+
+  // Explicit, body-only confirmation. A destructive reset must never be
+  // triggerable by a bare request or by a query string.
+  let confirm: unknown
+  try {
+    const body = await request.json()
+    confirm = (body as { confirm?: unknown })?.confirm
+  } catch {
+    confirm = undefined
+  }
+  if (confirm !== CONFIRM_PHRASE) {
+    return NextResponse.json(
+      { error: `Confirmation required: send { "confirm": "${CONFIRM_PHRASE}" } in the JSON body.` },
+      { status: 400 }
+    )
   }
 
-  console.log('[hard-reset] start userId=%s', user.id)
+  console.log('[hard-reset] start')
 
   // 1. Wipe exp_history (audit log → empty)
   const { error: histErr, count: histCount } = await supabase
@@ -30,11 +63,8 @@ export async function GET() {
     .delete({ count: 'exact' })
     .eq('user_id', user.id)
   if (histErr) {
-    console.error('[hard-reset] exp_history delete failed:', histErr)
-    return NextResponse.json(
-      { error: 'exp_history delete failed', details: histErr.message, code: (histErr as { code?: string }).code },
-      { status: 500 }
-    )
+    console.error('[hard-reset] exp_history delete failed')
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
   console.log('[hard-reset] exp_history rows deleted=%d', histCount ?? 0)
 
@@ -44,11 +74,8 @@ export async function GET() {
     .delete({ count: 'exact' })
     .eq('user_id', user.id)
   if (achErr) {
-    console.error('[hard-reset] user_achievements delete failed:', achErr)
-    return NextResponse.json(
-      { error: 'user_achievements delete failed', details: achErr.message, code: (achErr as { code?: string }).code },
-      { status: 500 }
-    )
+    console.error('[hard-reset] user_achievements delete failed')
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
   console.log('[hard-reset] user_achievements rows deleted=%d', achCount ?? 0)
 
@@ -71,14 +98,11 @@ export async function GET() {
     })
     .eq('user_id', user.id)
   if (statsErr) {
-    console.error('[hard-reset] user_stats update failed:', statsErr)
-    return NextResponse.json(
-      { error: 'user_stats update failed', details: statsErr.message, code: (statsErr as { code?: string }).code },
-      { status: 500 }
-    )
+    console.error('[hard-reset] user_stats update failed')
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 
-  console.log('[hard-reset] done userId=%s', user.id)
+  console.log('[hard-reset] done')
 
   return NextResponse.json({
     success: true,
