@@ -175,8 +175,9 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `84d69ff` (P0.
 
 ## Fase 1 — Athlete Profile (design consolidato, F1.1)
 
-> Design approvato con le revisioni del 2026-07-19. **Nessun codice / migrazione ancora.**
-> Confini formalizzati in **D012**. La tabella `athlete_profiles` verrà creata in **F1.2**.
+> Design approvato con le revisioni del 2026-07-19. Confini formalizzati in **D012**.
+> **F1.2 DONE**: migration `supabase/migrations/013_athlete_profiles.sql` **applicata
+> manualmente (Supabase SQL Editor) e verificata sul DB reale** (vedi sotto "Stato F1.2").
 
 ### Schema concettuale finale
 - **1 riga per utente**, `user_id` PK/FK → `auth.users(id) ON DELETE CASCADE`.
@@ -258,6 +259,28 @@ Logica futura (documentata, **non** implementata ora — per Restart e Decision 
 privilegiare **trend nel tempo**, **coerenza tra più segnali**, **andamento delle
 performance**, **aderenza e frequenza**, rispetto alla **singola lettura isolata** — con
 particolare cautela sui valori **stimati** (body fat e composizione).
+
+### Stato F1.2 (DONE — migration applicata e verificata sul DB reale)
+- File `supabase/migrations/013_athlete_profiles.sql` **applicato manualmente** nel Supabase
+  SQL Editor (workflow del repo) e **verificato sul DB reale**. **Risultati verificati**:
+  `public.athlete_profiles` presente (schema `public`), **35 colonne**, **0 righe** create
+  automaticamente, **RLS attiva**, **3 policy** (SELECT/INSERT/UPDATE own profile, UPDATE con
+  `USING`+`WITH CHECK`), **nessuna policy DELETE**, trigger `trg_athlete_profiles_updated_at`
+  presente, funzione `public.set_updated_at()` presente.
+- Contenuto: tabella `athlete_profiles` (**35 colonne**), tutti i campi nullable salvo
+  `user_id`/`created_at`/`updated_at`; array `text[]` **senza DEFAULT** (`null`=non risposto,
+  `[]`=nessuno); **CHECK named** (enum-like, numerici, coerenza min≤target/preferred, array
+  chiusi solo per `preferred_training_days` e `secondary_goals`); **RLS** ON con policy
+  per-utente SELECT/INSERT/UPDATE (UPDATE con `USING`+`WITH CHECK`, **no DELETE**); nuova
+  funzione generica riutilizzabile `public.set_updated_at()` + trigger `BEFORE UPDATE`.
+- **Idempotente** (`CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`,
+  `DROP POLICY/TRIGGER IF EXISTS`+`CREATE`); **nessun** DROP TABLE/TRUNCATE/DELETE/INSERT;
+  **nessuna** riga profilo creata (creazione lazy via upsert in F1.3); nessun GRANT esplicito
+  (default Supabase + RLS, come le altre tabelle per-utente).
+- **Nota migrazioni**: tracking ufficiale a 005, effetti 006–012 nel DB (vedi sotto). `013`
+  è il prossimo progressivo; **verificare lo stato reale del DB** prima di applicare.
+- Query di verifica read-only (tabella/colonne/RLS/policy/constraint/trigger/row-count 0)
+  incluse **in coda al file** come commenti.
 
 ---
 

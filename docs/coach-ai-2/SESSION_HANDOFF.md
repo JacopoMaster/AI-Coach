@@ -48,7 +48,20 @@
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
   - **Fase 0** — P0.1 (`50fca65`), P0.2 (`bafac1e`), P0.3 (`84d69ff`) tutte **committate**.
-  - **F1.1 — Athlete Profile: Design & Architecture Audit** (docs, **nessun codice**):
+  - **F1.2 — Athlete Profile DB schema** (**DONE** — applicata e verificata sul DB reale):
+    - `supabase/migrations/013_athlete_profiles.sql` — tabella `athlete_profiles`
+      (35 colonne), array `text[]` senza DEFAULT (`null`≠`[]`), CHECK named
+      (enum-like/numerici/coerenza/array chiusi solo per training_days e secondary_goals),
+      RLS per-utente SELECT/INSERT/UPDATE (UPDATE con USING+WITH CHECK, no DELETE), nuova
+      funzione generica `public.set_updated_at()` + trigger BEFORE UPDATE;
+    - idempotente, nessuna op distruttiva/INSERT, nessuna riga creata, nessun dato reale;
+    - **applicata manualmente via Supabase SQL Editor e verificata sul DB reale**:
+      `athlete_profiles` presente, 35 colonne, RLS attiva, 3 policy SELECT/INSERT/UPDATE
+      (no DELETE), trigger `trg_athlete_profiles_updated_at` + funzione `set_updated_at`
+      presenti, 0 righe iniziali;
+    - fix post-verifica: typo query di verifica commentata (`polname`→`policyname`), nessuna
+      modifica a schema/RLS/trigger.
+  - **F1.1 — Athlete Profile: Design & Architecture Audit** (docs, committato `569f5fc`):
     - modello `athlete_profiles` consolidato con le revisioni del 2026-07-19 — vedi
       `CURRENT_STATE.md` → "Fase 1 — Athlete Profile" (schema, colonne finali, `restart_ready`);
     - **revisioni applicate**: rimossi `current_phase` e `restart_preferences` (stato di
@@ -60,25 +73,28 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti**: nessuno (task solo-documentale, nessun codice/SQL modificato).
-- **Stato working tree**: solo docs modificate (`CURRENT_STATE.md`, `DECISIONS.md`,
-  `BACKLOG.md`, `SESSION_HANDOFF.md`). Nessun file applicativo/migrazione.
+- **Test eseguiti**: `git diff --check` pulito; audit statico migration (no UUID/email/dati
+  reali, no DROP TABLE/TRUNCATE/DELETE/INSERT, no migration precedenti toccate). Nessuna
+  esecuzione SQL contro il DB. Nessun typecheck/build (nessun codice TS modificato).
+- **Stato working tree**: nuovo file untracked `supabase/migrations/013_athlete_profiles.sql`
+  + docs modificate (`CURRENT_STATE.md`, `BACKLOG.md`, `SESSION_HANDOFF.md`). Nessun codice
+  applicativo TS toccato.
 - **File estranei da NON includere in eventuali commit**:
   - `.claude/settings.local.json` — config locale.
   - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
 - **Decisioni rilevanti**: **D012** (confini Athlete Profile), **D013** (minimo attrito di
   tracking), **D009** riformulata, D003/D004/D005 (schedule min/target, flessibilità),
   D006 (`explanation_detail`), D002, D001/D011.
-- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 in corso** (F1.1 design **committato**).
-- **Prossimo task**: **F1.2 — creare `supabase/migrations/013_athlete_profiles.sql`** con
-  **tabella** (colonne finali da CURRENT_STATE), **constraint** (CHECK named + `text[]` per
-  le liste + CHECK di riga min≤target/preferred), **RLS** per-utente (SELECT/INSERT/UPDATE)
-  e **`updated_at`** (trigger). Idempotente (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`).
-  **Non creare la migration prima del task dedicato.** API di F1.3 userà **PATCH** (update
-  parziale); F1.5 = esposizione **read-only** al Coach (no modifica autonoma).
-- **File da leggere nel prossimo task (F1.2)**:
-  - `CURRENT_STATE.md` (colonne finali), `DECISIONS.md` (D012), `supabase/migrations/006_*`,
-    `005_*` (pattern RLS/trigger/idempotenza), `002_mesocycles.sql` (stile CHECK named).
+- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 in corso** (F1.1 design committato `569f5fc`;
+  **F1.2 DONE** — migration `013` applicata e verificata sul DB reale).
+- **Prossimo task**: **F1.3 — tipi TypeScript `AthleteProfile` + validazione + helper server +
+  completezza derivata + API `app/api/profile` GET/PATCH** (aggiornamento parziale progressivo;
+  upsert lazy; errori generici stile P0.3; convenzione array `null`=non risposto / `[]`=nessuno).
+  F1.5 = esposizione **read-only** al Coach (no modifica autonoma).
+- **File da leggere/usare nel prossimo task (F1.3)**:
+  - `supabase/migrations/013_athlete_profiles.sql` (colonne/constraint effettivi),
+    `CURRENT_STATE.md` (colonne finali, stato F1.2), `DECISIONS.md` (D012/D013),
+    `lib/auth/admin.ts`/`app/api/admin/*` (stile errori generici), `lib/supabase/server.ts`.
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

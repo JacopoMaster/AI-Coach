@@ -13,14 +13,19 @@
 - [x] **DONE — F1.1 · Design & Architecture Audit** (docs). Modello `athlete_profiles`
   consolidato (vedi `CURRENT_STATE.md` → "Fase 1 — Athlete Profile") + confini **D012** +
   D009 riformulata (no girovita). Nessun codice/migrazione.
-- [ ] **TODO — F1.2 · Migration `013_athlete_profiles`**. Tabella (colonne finali da
-  CURRENT_STATE) + CHECK named + `text[]` per le liste + RLS per-utente (SELECT/INSERT/UPDATE)
-  + trigger `updated_at`. **Idempotente** (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`).
-  Prossimo numero progressivo `013`; verificare stato reale DB prima di applicare. **← prossimo.**
-- [ ] **TODO — F1.3 · Tipi + validation + server helpers + API**. `AthleteProfile` in
-  `lib/types.ts`, `lib/profile/*` (read/write + `completeness.ts` derivata), route
+- [x] **DONE — F1.2 · Migration `013_athlete_profiles`**. File
+  `supabase/migrations/013_athlete_profiles.sql` (35 colonne, CHECK named enum-like/numerici/
+  coerenza/array, `text[]` per le liste con semantica `null`≠`[]`, RLS per-utente
+  SELECT/INSERT/UPDATE con USING+WITH CHECK, funzione generica `public.set_updated_at()` +
+  trigger BEFORE UPDATE). Idempotente, nessuna op distruttiva, nessuna riga creata.
+  **Applicata manualmente via Supabase SQL Editor e verificata sul DB reale**: `athlete_profiles`
+  presente (schema `public`), 35 colonne, RLS attiva, 3 policy (SELECT/INSERT/UPDATE, no DELETE),
+  trigger `trg_athlete_profiles_updated_at` + funzione `public.set_updated_at()` presenti,
+  0 righe iniziali.
+- [ ] **TODO — F1.3 · Tipi + validation + server helpers + completezza + API**. `AthleteProfile`
+  in `lib/types.ts`, `lib/profile/*` (read/write + `completeness.ts` derivata), route
   `app/api/profile` **GET/PATCH** (aggiornamento parziale progressivo; upsert lazy; errori
-  generici stile P0.3). Convenzione array: `null`=non risposto, `[]`=nessuno.
+  generici stile P0.3). Convenzione array: `null`=non risposto, `[]`=nessuno. **← prossimo.**
 - [ ] **TODO — F1.4 · Profile UI / onboarding progressivo**. Form a blocchi + disclaimer
   limitazioni (non-medicale) + indicatore completezza derivato.
 - [ ] **TODO — F1.5 · Esposizione read-only del profilo al Coach**. Tool
@@ -84,7 +89,8 @@
 - **DONE**: P0.3 sicurezza admin (commit `84d69ff`).
 
 ### Fase 1 — Athlete Profile
-- **F1.1 DONE** (design). **F1.2–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima.
+- **F1.1 DONE** (design, commit `569f5fc`). **F1.2 DONE** (migration `013` applicata+verificata
+  sul DB reale). **F1.3–F1.5 TODO** — vedi "Prossimi task — Fase 1" in cima.
   Modello e confini in `CURRENT_STATE.md` + **D012**.
 
 ### Fase 2 — September Restart
