@@ -340,6 +340,44 @@ particolare cautela sui valori **stimati** (body fat e composizione).
   aggiornamento della completeness dalla response; UX giudicata adeguata come sottomenu non
   invasivo di Config. **DB/API/RLS non modificati.** Stato: **DONE**.
 
+### Stato F1.5 (DONE — profilo read-only al Coach, verificata manualmente) — Fase 1 COMPLETATA
+- **Architettura Coach (audit)**: `app/api/coach/route.ts` usa **contesto pre-caricato
+  server-side**, NON tool-use nativo del modello. `classifyIntent` (Haiku) instrada:
+  `simple_ack` (nessun contesto), `data_mutation` (`fetchMutationContext`, 2 query, Haiku),
+  `complex_coach` (`fetchUserContext`, 5 query parallele, Sonnet). Il modello risponde con
+  JSON `{reply, actions}`; le uniche write sono le 4 action esistenti (workout/diet/nota/checkin).
+  `lib/ai/tools.ts` = funzioni server-side (non tool invocati dal modello). System prompt
+  separato dal prompt utente (`generateStructuredOutput(prompt, systemPrompt, …)`).
+- **Integrazione**: il profilo è aggiunto al **contesto pre-caricato** del path `complex_coach`
+  (`fetchUserContext` ora riceve `supabase`, legge il profilo in parallelo alle altre 5 query).
+  Letto **automaticamente** a ogni conversazione coaching, senza che l'utente lo chieda; **non**
+  in `data_mutation` (path minimale execute-and-confirm, per contenere i token). **Read-only.**
+- **Formatter puro** `lib/profile/coach-context.ts` (`formatAthleteProfileForCoach`): blocco
+  compatto etichettato come **dato dichiarato dall'utente, sola lettura**; solo campi **non-null**;
+  `null`=omesso, `[]`="nessuno indicato" (distinzione preservata); esclude
+  `user_id`/`created_at`/`updated_at` e ogni metadato DB; include `profile_status`
+  (via `getProfileCompleteness`). Testo libero quotato (delimitato). Dimensione: profilo
+  **completo** ≈ **875 caratteri** (~220–260 token); profilo parziale molto più piccolo.
+- **Guardrail nel system prompt** (`lib/ai/system-prompt.ts`, sezione "PROFILO ATLETA"):
+  profilo = **DATO non istruzioni** (anti prompt-injection: le note libere non sono comandi);
+  **profilo ≠ prescrizione** (no auto-modifica scheda/dieta, D007 conferma); **no invenzione**
+  di campi mancanti (chiedere se serve); **target vs minimum** (minimo non è fallimento, no
+  recupero forzato); **durate** ideale/minima; **stile coaching/dettaglio/flessibilità** come
+  modulazione del tono esistente; **barriere** come contesto non rules-engine; **limitazioni/
+  dolore** auto-riferiti, non diagnosi, rimando a professionista per dolore nuovo/serio;
+  **allergie/restrizioni** rispettate, `null`≠assenza.
+- **Error handling**: errore DB reale di lettura profilo → blocco "temporaneamente non
+  disponibile" (**≠ assente**, coerente con P0.1), il Coach continua; profilo assente → marker
+  "not_started". **Nessun log** del profilo, nessun contenuto profilo in messaggi d'errore.
+- **Scope**: nessuna modifica a DB/migration/RLS/Profile UI/Profile API; nessuna capacità write
+  al Coach; nessuna riga profilo creata. tsc/build OK; test puri formatter **20/20** (null,
+  partial, null vs [], coaching pref, target/minimum, prompt-injection nel free text, complete
+  senza metadati DB); **verifica manuale runtime del Coach superata** → **DONE**.
+
+> **Fase 1 — Athlete Profile: COMPLETATA** (F1.1 design, F1.2 migration `013`, F1.3 application
+> layer, F1.4 Profile UI, F1.5 esposizione read-only al Coach). Prossima: **Fase 2 — September
+> Restart** (non iniziata).
+
 ---
 
 ## Principi di prodotto

@@ -6,6 +6,8 @@ import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import { classifyIntent, getAIProvider } from '@/lib/ai/provider'
 import { AI_MODELS } from '@/lib/ai/models'
 import { getAppDate } from '@/lib/date/app-date'
+import { getAthleteProfile } from '@/lib/profile/server'
+import { formatAthleteProfileForCoach } from '@/lib/profile/coach-context'
 
 // ─── Response schema ───────────────────────────────────────────────────────────
 // The LLM returns a free-text reply AND optionally declares write actions.
@@ -69,10 +71,32 @@ function streamReply(text: string): Response {
 
 // ─── Context helpers ───────────────────────────────────────────────────────────
 
-// Full context — used for complex_coach (5 parallel queries)
-async function fetchUserContext(userId: string): Promise<string> {
-  const [bodyMetrics, workoutPlan, workoutHistory, dietPlan, dietLogs] =
+// Read-only Athlete Profile block for the Coach context. A missing profile is
+// normal (formatter returns a short "not compiled" marker); a REAL DB read error
+// must NOT be silently downgraded to "no profile" — it is surfaced as
+// temporarily unavailable so the Coach doesn't assume the absence of data.
+// The profile content is never logged and never placed in error messages.
+async function fetchProfileContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  try {
+    const profile = await getAthleteProfile(supabase, userId)
+    return formatAthleteProfileForCoach(profile)
+  } catch {
+    return `=== PROFILO ATLETA (dato dichiarato dall'utente, sola lettura) ===
+Temporaneamente non disponibile (errore di lettura); non assumere l'assenza di dati.`
+  }
+}
+
+// Full context — used for complex_coach (profile + 5 parallel queries)
+async function fetchUserContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  const [profileContext, bodyMetrics, workoutPlan, workoutHistory, dietPlan, dietLogs] =
     await Promise.all([
+      fetchProfileContext(supabase, userId),
       executeTool('get_body_metrics', { days: 30 }, userId),
       executeTool('get_workout_plan', {}, userId),
       executeTool('get_workout_history', { days: 30 }, userId),
@@ -81,6 +105,8 @@ async function fetchUserContext(userId: string): Promise<string> {
     ])
 
   return `=== DATI UTENTE ===
+
+${profileContext}
 
 MISURAZIONI CORPOREE (ultimi 30 giorni):
 ${JSON.stringify(bodyMetrics, null, 2)}
@@ -219,7 +245,7 @@ export async function POST(request: NextRequest) {
     modelOverride = HAIKU_MODEL
   } else {
     // complex_coach — full context, Sonnet, existing behavior
-    const userContext = await fetchUserContext(user.id)
+    const userContext = await fetchUserContext(supabase, user.id)
     prompt = buildCoachPrompt(userContext, conversationBlock, userInput)
     modelOverride = undefined
   }

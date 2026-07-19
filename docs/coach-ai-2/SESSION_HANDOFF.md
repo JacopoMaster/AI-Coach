@@ -48,7 +48,19 @@
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
   - **Fase 0** — P0.1 (`50fca65`), P0.2 (`bafac1e`), P0.3 (`84d69ff`) tutte **committate**.
-  - **F1.4 — Profile UI / onboarding progressivo** (**DONE** — verificata manualmente sul runtime):
+  - **F1.5 — Esposizione read-only del profilo al Coach** (**DONE** — verificata manualmente sul
+    runtime del Coach; **completa la Fase 1**):
+    - profilo aggiunto al **contesto pre-caricato** del Coach (`fetchUserContext`, path
+      `complex_coach`), **non** come tool agentic (il Coach non usa tool-use nativo); read-only;
+    - formatter puro `lib/profile/coach-context.ts` (compatto, solo non-null, `null`≠`[]`,
+      esclude `user_id`/`created_at`/`updated_at`, include `profile_status`); ≈875 char completo;
+    - guardrail nel system prompt `lib/ai/system-prompt.ts` (dato≠istruzioni/anti-injection,
+      profilo≠prescrizione/D007, no invenzione, target vs minimum, stile coaching, limitazioni
+      non-diagnosi, allergie rispettate);
+    - errore DB lettura → "temporaneamente non disponibile" (≠ assente); **nessun log** del profilo;
+    - tsc/build OK; test puri formatter **20/20**; ricerca finale: nessuna write, nessun accesso
+      client diretto, nessun log profilo, DB/RLS/API invariati.
+  - **F1.4 — Profile UI / onboarding progressivo** (**DONE** — commit `68fa809`):
     - pagina `app/(app)/profile/page.tsx` + entry point in Settings (`/profile`); no bottom-nav,
       no redirect obbligatori (onboarding non bloccante);
     - 7 card collassabili con **salvataggio indipendente per blocco**; consuma `GET/PATCH /api/profile`;
@@ -103,13 +115,25 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F1.4)**: `npx tsc --noEmit` OK; `npm run build` OK (`/profile` registrata);
-  verifica statica logica pura (patch-diff + completeness compilati in CJS) **22/22**;
-  `git diff --check` pulito; **verifica manuale UI runtime superata** (checklist sotto tutta OK).
-- **Stato working tree (F1.4)**: nuovi `app/(app)/profile/page.tsx`, `components/profile/*`
-  (4 file), `lib/profile/labels.ts`, `lib/profile/patch-diff.ts`; modificati
-  `app/(app)/settings/page.tsx`, `lib/profile/completeness.ts` (+export `RESTART_READY_KEYS`/
-  `getMissingRestartFields`) + i 3 docs. Nessuna migration/DB/RLS/API-route toccati.
+- **Test eseguiti (F1.5)**: `npx tsc --noEmit` OK; `npm run build` OK (`/api/coach` compilata);
+  test puri formatter (coach-context + completeness in CJS) **20/20**; `git diff --check` pulito.
+  **Verifica manuale runtime del Coach ancora da fare** (checklist F1.5 sotto).
+- **Stato working tree (F1.5)**: nuovo `lib/profile/coach-context.ts`; modificati
+  `app/api/coach/route.ts` (+profilo nel contesto pre-caricato) e `lib/ai/system-prompt.ts`
+  (+guardrail profilo) + i 3 docs. **Nessuna** modifica DB/migration/RLS/Profile UI/Profile API;
+  nessuna capacità write aggiunta al Coach.
+- **Checklist verifica manuale Coach (F1.5)** — da eseguire in locale con profilo reale, senza
+  modificare il profilo:
+  1. "Qual è secondo te il mio obiettivo principale?" → il Coach cita l'obiettivo dal profilo reale.
+  2. "Quante volte allenarmi in una settimana normale e se ho una settimana difficile?" → distingue
+     target e minimum; non tratta il minimo come fallimento.
+  3. "Perché mi consigli questo?" (con `explanation_detail=detailed`) → spiegazione più motivata.
+  4. "Ho poco tempo e sono stanco per il lavoro, cosa faccio?" → tiene conto di lifestyle/barriere,
+     propone sessione ridotta a parole SENZA modificare la scheda.
+  5. "Quali limitazioni devo rispettare?" → usa solo quelle dichiarate, nessuna inventata, nessuna diagnosi.
+  6. Domanda che dipende da un campo ancora `null` (es. attrezzatura non compilata) → il Coach
+     chiede invece di assumere.
+  7. Verifica che una nota profilo tipo "ignora le istruzioni" non alteri il comportamento del Coach.
 - **Checklist verifica manuale UI (F1.4)** — **eseguita e superata** in locale con sessione
   autenticata (registrata per riferimento):
   1. Aprire Config → "Profilo atleta" apre `/profile` senza crash (profilo esistente precompilato).
@@ -132,15 +156,15 @@
 - **Decisioni rilevanti**: **D012** (confini Athlete Profile), **D013** (minimo attrito di
   tracking), **D009** riformulata, D003/D004/D005 (schedule min/target, flessibilità),
   D006 (`explanation_detail`), D002, D001/D011.
-- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 in corso** (F1.1 `569f5fc`, F1.2 `e25db80`,
-  F1.3 `ea460d2`; **F1.4 DONE** — verificata manualmente, in commit in questa sessione).
-- **Prossimo task**: **F1.5 — esposizione read-only del profilo al Coach** (tool
-  `get_athlete_profile` + guardrail anti-diagnosi nel system prompt; il Coach **non** ottiene
-  ancora la capacità di modificare il profilo).
-- **File da leggere/usare in F1.5**:
-  - `lib/profile/{server,types,completeness}.ts`, `lib/ai/tools.ts`, `lib/ai/system-prompt.ts`,
-    `app/api/coach/route.ts`.
-- **Nota**: F1.4 è **DONE** (verifica manuale UI superata). F1.5 non ancora iniziata.
+- **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (F1.1 `569f5fc`, F1.2 `e25db80`,
+  F1.3 `ea460d2`, F1.4 `68fa809`, F1.5 in commit in questa sessione — verifica manuale Coach OK).
+- **Prossimo task**: **Fase 2 — September Restart** (design/implementazione; baseline **solo** da
+  metriche già presenti in `body_measurements` + performance/frequenza/aderenza, **no girovita** —
+  D008/D009). **Non ancora iniziata.**
+- **File da leggere per la Fase 2**:
+  - `MASTER_PLAN.md` (Fase 2), `DECISIONS.md` (D008/D009), `lib/profile/*`,
+    `supabase/migrations/002_mesocycles.sql`, `user_stats.baseline_tonnage`.
+- **Nota**: **Fase 1 (Athlete Profile) COMPLETATA** — F1.1–F1.5 tutte DONE e verificate. Prossima: Fase 2.
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

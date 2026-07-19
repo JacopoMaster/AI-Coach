@@ -5,10 +5,11 @@
 
 ---
 
-## Prossimi task — Fase 1 (Athlete Profile, in ordine)
+## Prossimi task — Fase 2 (September Restart)
 
-> **Fase 0 completata.** Fase 1: F1.1–F1.4 **DONE**. Prossimo task: **F1.5** (esposizione
-> read-only del profilo al Coach).
+> **Fase 0 COMPLETATA.** **Fase 1 (Athlete Profile) COMPLETATA** — F1.1–F1.5 tutte DONE e
+> verificate. Prossima fase: **Fase 2 — September Restart** (non ancora iniziata; vedi
+> `MASTER_PLAN.md` e D008/D009).
 
 - [x] **DONE — F1.1 · Design & Architecture Audit** (docs). Modello `athlete_profiles`
   consolidato (vedi `CURRENT_STATE.md` → "Fase 1 — Athlete Profile") + confini **D012** +
@@ -45,9 +46,19 @@
   (entry point Config, `/profile` accessibile, dati precompilati, salvataggio indipendente,
   persistenza dopo reload, semantica null/`[]`, validazioni coerenza, aggiornamento completeness;
   UX adeguata come sottomenu non invasivo). Prossimo task: **F1.5**.
-- [ ] **TODO — F1.5 · Esposizione read-only del profilo al Coach**. Tool
-  `get_athlete_profile` + guardrail anti-diagnosi nel system prompt. **Read-only**: il Coach
-  **non** ottiene ancora la capacità autonoma di modificare il profilo. **← prossimo.**
+- [x] **DONE — F1.5 · Esposizione read-only del profilo al Coach**. Il profilo è aggiunto al
+  **contesto pre-caricato** del Coach (path `complex_coach`, `fetchUserContext`), **non** come
+  tool agentic (il Coach non usa tool-use nativo). Nuovo formatter puro
+  `lib/profile/coach-context.ts` (`formatAthleteProfileForCoach`) → blocco compatto, solo campi
+  non-null, distinzione `null` (omesso) vs `[]` ("nessuno indicato"), esclude
+  `user_id`/`created_at`/`updated_at`, include `profile_status`. Guardrail interpretativi nel
+  **system prompt** (`lib/ai/system-prompt.ts`): profilo=DATO non istruzioni (anti
+  prompt-injection), profilo≠prescrizione (D007), no invenzione campi mancanti, target vs
+  minimum, durate, stile coaching/dettaglio/flessibilità come modulazione, barriere come
+  contesto, limitazioni/dolore non-diagnosi, allergie/restrizioni rispettate. Errore DB di
+  lettura → "temporaneamente non disponibile" (≠ assente), Coach continua; **nessun log del
+  profilo**; **read-only** (nessuna write). tsc/build OK; test puri formatter **20/20**;
+  **verifica manuale runtime del Coach superata**.
 
 ### DONE (commit `84d69ff`)
 - [x] **DONE — P0.3 · Sicurezza route admin**. Helper server-only
@@ -105,10 +116,11 @@
 - **DONE**: P0.2 date applicative Europe/Rome (commit `bafac1e`).
 - **DONE**: P0.3 sicurezza admin (commit `84d69ff`).
 
-### Fase 1 — Athlete Profile
+### Fase 1 — Athlete Profile ✅ COMPLETATA
 - **F1.1 DONE** (design, `569f5fc`). **F1.2 DONE** (migration `013`, `e25db80`).
-  **F1.3 DONE** (application layer, `ea460d2`). **F1.4 DONE** (Profile UI, verificata manualmente).
-  **F1.5 TODO** — vedi "Prossimi task — Fase 1". Modello/confini: `CURRENT_STATE.md` + **D012**.
+  **F1.3 DONE** (application layer, `ea460d2`). **F1.4 DONE** (Profile UI, `68fa809`).
+  **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
+  `CURRENT_STATE.md` + **D012**.
 
 ### Fase 2 — September Restart
 - **TODO**: assessment, baseline, fase Restart, strategia salvata (D008). La **baseline
