@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
+import { getDailyNutritionTotals } from '@/lib/diet/daily-totals'
 
 export const toolDefinitions: Anthropic.Tool[] = [
   {
@@ -241,16 +242,16 @@ export async function executeTool(
     }
 
     case 'get_diet_logs': {
+      // Source of truth: nutrition_entries aggregated per day (D001/D011).
+      // Returns date, calories, protein_g, carbs_g, fat_g, entries_count.
       const days = (toolInput.days as number) || 30
       const from = new Date()
       from.setDate(from.getDate() - days)
-      const { data } = await supabase
-        .from('diet_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('date', from.toISOString().split('T')[0])
-        .order('date', { ascending: false })
-      return data || []
+      return getDailyNutritionTotals(
+        supabase,
+        userId,
+        from.toISOString().split('T')[0]
+      )
     }
 
     case 'update_workout_plan': {

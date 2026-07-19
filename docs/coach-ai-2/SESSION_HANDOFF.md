@@ -42,45 +42,46 @@
 
 - **Data**: 2026-07-19
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `d40d5fa feat(ai): centralizzare la configurazione dei modelli AI`
-  - `main` è **ahead 1** rispetto a `origin/main` — **nessun push** effettuato.
+- **Ultimo commit (locale)**: `86bfeb6 docs(coach-ai-2): add multi-session development plan`
+  (precedente: `d40d5fa`). `main` ahead di `origin/main` — **nessun push** effettuato.
+  Refactor AIErrorClass/logging isolato sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
-  - Audit repository, DB, migrazioni, cron, dieta, vacation, achievement.
-  - Centralizzazione modelli AI (`lib/ai/models.ts`) — commit `d40d5fa`.
-  - Creazione impianto documentale multi-sessione in `docs/coach-ai-2/`
-    (MASTER_PLAN, CURRENT_STATE, DECISIONS, BACKLOG, SESSION_HANDOFF).
-- **Test eseguiti**: nessuno in questa sessione (solo documentazione; nessuna modifica al
-  codice applicativo).
-- **Stato working tree** (al snapshot):
-  - Modificati: `.claude/settings.local.json`, `app/api/coach/route.ts`,
-    `app/api/cron/proactive-coach/route.ts`, `app/api/cron/weight-reminder/route.ts`,
-    `app/api/diet/quick-log/route.ts`, `lib/ai/provider.ts`.
-  - Untracked: `lib/ai/errors.ts`, `public/worker-bc2006058c3e6de4.js`,
-    più la nuova cartella `docs/coach-ai-2/`.
-- **File estranei da NON includere in commit di scope**:
-  - `.claude/settings.local.json` — config locale, fuori scope.
-  - `public/worker-bc2006058c3e6de4.js` — artefatto di build, fuori scope.
-  - `lib/ai/errors.ts` — DEFERRED (AIErrorClass/logging), non prossimo task.
-- **Decisioni rilevanti**: D001 (nutrition_entries source of truth), D002 (Europe/Rome),
-  D010 (commit atomici), D011 (P0.1 senza view SQL / senza migrazione, `diet_logs`
-  deprecata non eliminata). Vedi `DECISIONS.md`.
-- **Prossimo task**: **P0.1 — Unificazione dieta su `nutrition_entries`** (Fase 0),
-  **senza migrazione DB** (D011): unica sorgente `nutrition_entries` + helper server-side
-  per le aggregazioni giornaliere; **nessuna view SQL**; **`diet_logs` deprecata ma NON
-  eliminata**.
-- **File da leggere nel prossimo task**:
-  - `app/api/diet/route.ts`, `app/api/nutrition/route.ts`,
-    `app/api/diet/quick-log/route.ts`, `app/api/check-in/route.ts`
-  - `lib/ai/tools.ts`, `app/api/coach/route.ts`
-  - `supabase/functions/proactive-coach/index.ts`, `.../anomalies.ts`
-  - `supabase/migrations/00201_nutrition_tracker.sql`, `001_initial_schema.sql`
-- **Blocker**: nessuno noto. Attenzione al disallineamento tracking migrazioni (006–012
-  applicati nel DB ma non nel tracking ufficiale) prima di introdurre nuove migrazioni.
+  - **P0.1 — Unificazione dieta su `nutrition_entries`** (implementazione + verifica,
+    **in attesa di commit/approvazione**):
+    - nuovo helper `lib/diet/daily-totals.ts` → `getDailyNutritionTotals(supabase, userId,
+      fromDate?, toDate?)`, aggrega per giorno e normalizza `proteins/carbs/fats →
+      protein_g/carbs_g/fat_g` in un solo punto (+`entries_count`);
+    - letture unificate: `app/api/diet/route.ts` (GET today/logs), `lib/ai/tools.ts`
+      (`get_diet_logs`, usato dal Coach), `app/api/check-in/route.ts` (`diet_feedback`);
+    - scritture invariate (`/api/nutrition`, `/api/diet/quick-log`);
+    - `diet_logs`: write `action=log` **disattivato → 410 Gone** (nessun caller; payload
+      non equivalente, non reindirizzato); nessuna migrazione/view/RLS toccata;
+    - helper: **errore DB lanciato** (non mascherato come dieta vuota), zero record → `[]`;
+      `/api/diet` GET restituisce 500 sull'errore.
+- **Test eseguiti**:
+  - `npx tsc --noEmit` → OK; `npm run build` → OK; `git diff --check` → pulito.
+  - Verifica logica helper (scratchpad, Node 24 TS, no nuove dipendenze) → **9/9 scenari**
+    (aggregazione stesso giorno, giorni separati, null/stringhe, range from/to, utente
+    vuoto, filtro user_id, errore DB→throw, zero record→[], data null→[]).
+- **Stato working tree** (pre-commit): modificati `app/api/diet/route.ts`,
+  `lib/ai/tools.ts`, `app/api/check-in/route.ts`; untracked `lib/diet/`.
+- **File estranei da NON includere nel commit P0.1**:
+  - `.claude/settings.local.json` — config locale.
+  - `public/worker-bc2006058c3e6de4.js` — artefatto di build.
+- **Decisioni rilevanti**: D001, D011 (applicate in P0.1), D002 (→ P0.2), D010.
+- **Prossimo task**: **P0.2 — Timezone `Europe/Rome`** (D002): uniformare i confini di
+  "giornata" (log/reminder/cron e le aggregazioni dieta, incl. le date `today` calcolate
+  con `toISOString()` in `app/api/diet`, `quick-log`, `check-in`, Today) su Europe/Rome.
+- **File da leggere nel prossimo task (P0.2)**:
+  - `app/api/diet/route.ts`, `app/api/diet/quick-log/route.ts`, `app/api/check-in/route.ts`,
+    `lib/diet/daily-totals.ts`, `app/(app)/today/page.tsx`, `lib/utils.ts` (`today()`),
+    route cron `app/api/cron/*`.
+- **Blocker**: nessuno. Legacy residuo noto: Edge Function `proactive-coach` (Deno) legge
+  ancora `diet_logs` — fuori scope P0.1, da migrare in task dedicato.
 - **Comandi utili**:
   ```bash
   git status --short
-  git log --oneline -8
-  git rev-list --count origin/main..main   # verifica ahead
-  npm run build                            # verifica build/proxy.ts
-  npm run lint
+  git diff --stat
+  npx tsc --noEmit
+  npm run build
   ```

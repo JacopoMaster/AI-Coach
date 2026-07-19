@@ -9,6 +9,7 @@ import {
   EndOfMesoExerciseChange,
 } from '@/lib/ai/check-in-schema'
 import { getAIProvider } from '@/lib/ai/provider'
+import { getDailyNutritionTotals } from '@/lib/diet/daily-totals'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -233,7 +234,10 @@ export async function POST(request: NextRequest) {
       ? meso.start_date
       : sevenDaysAgo.toISOString().split('T')[0]
 
-    const [{ data: sessions }, { data: dietLogs }, { data: plan }] = await Promise.all([
+    // Diet totals come from nutrition_entries aggregated per day (D001/D011),
+    // not the deprecated diet_logs table. Shape keeps protein_g/carbs_g/fat_g so
+    // the weekly prompt and diet_feedback are unchanged.
+    const [{ data: sessions }, dietLogs, { data: plan }] = await Promise.all([
       supabase
         .from('workout_sessions')
         .select(`
@@ -244,12 +248,11 @@ export async function POST(request: NextRequest) {
         .eq('user_id', user.id)
         .gte('date', sessionsFromDate)
         .order('date', { ascending: false }),
-      supabase
-        .from('diet_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', sevenDaysAgo.toISOString().split('T')[0])
-        .order('date', { ascending: false }),
+      getDailyNutritionTotals(
+        supabase,
+        user.id,
+        sevenDaysAgo.toISOString().split('T')[0]
+      ),
       supabase
         .from('workout_plans')
         .select(`*, days:workout_plan_days(*, exercises:plan_exercises(*))`)
@@ -259,7 +262,7 @@ export async function POST(request: NextRequest) {
     ])
 
     let analysis: WeeklyCheckInOutput | EndOfMesoOutput
-    const sessionData = { sessions: sessions || [], diet_logs: dietLogs || [] }
+    const sessionData = { sessions: sessions || [], diet_logs: dietLogs }
 
     try {
       const ai = getAIProvider()

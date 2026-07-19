@@ -7,14 +7,20 @@
 
 ## Prossimi task — P0 (Fase 0, in ordine)
 
-- [ ] **TODO — P0.1 · Unificazione dieta** su `nutrition_entries` (D001, D011),
-  **senza migrazione DB**. Usare `nutrition_entries` come unica sorgente e un **helper
-  server-side** per le aggregazioni giornaliere; far convergere API/tool/coach/edge-function.
-  **Nessuna view SQL** prevista in P0.1. `diet_logs` viene **deprecata ma non eliminata**.
 - [ ] **TODO — P0.2 · Timezone `Europe/Rome`** (D002). Uniformare i confini di giornata
-  in log, reminder e cron.
+  in log, reminder e cron. **← prossimo task.**
 - [ ] **TODO — P0.3 · Sicurezza route admin**. Proteggere le route amministrative con
   autorizzazione verificata.
+
+### DONE in attesa di commit
+- [x] **DONE (pending commit) — P0.1 · Unificazione dieta** su `nutrition_entries`
+  (D001, D011), **senza migrazione DB / senza view SQL**. Helper `lib/diet/daily-totals.ts`
+  (`getDailyNutritionTotals`); letture unificate in `app/api/diet` (GET), `lib/ai/tools.ts`
+  (`get_diet_logs`, usato dal Coach) e `app/api/check-in`. Scritture invariate su
+  `nutrition_entries`. Writer legacy `action=log` **disattivato (410 Gone)**, non
+  reindirizzato. Helper: **errore DB lanciato** (non mascherato), zero record → `[]`.
+  Legacy residuo fuori scope: Edge Function `proactive-coach` (Deno). tsc/build/verifica
+  helper (9/9 scenari) OK. Commit suggerito: `feat(diet): unify diet source on nutrition_entries (P0.1)`.
 
 ---
 
@@ -35,9 +41,9 @@
 ## Backlog per fase
 
 ### Fase 0 — Stabilizzazione minima
-- **IN PROGRESS**: (nessuno — avvio con P0.1)
-- **TODO**: P0.1 unificazione dieta (senza migrazione DB, senza view SQL, no delete di
-  `diet_logs`) · P0.2 timezone · P0.3 sicurezza admin (vedi sopra).
+- **DONE (pending commit)**: P0.1 unificazione dieta (helper `getDailyNutritionTotals`,
+  letture su `nutrition_entries`, no migrazione/no view, `diet_logs` deprecata).
+- **TODO**: P0.2 timezone · P0.3 sicurezza admin (vedi sopra).
 
 ### Fase 1 — Athlete Profile
 - **TODO**: definire schema profilo (obiettivi, esperienza, disponibilità, durata,

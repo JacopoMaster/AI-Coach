@@ -39,14 +39,32 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
 
 ## Problemi noti / stato accertato a livello dati
 
-### Dieta — doppia sorgente
-- `diet_logs` è **vuota in produzione**.
-- `nutrition_entries` **contiene i dati reali**.
-- Il codice referenzia **entrambe** le tabelle (riscontrate in ~12 file, tra cui
-  `app/api/diet/route.ts`, `app/api/nutrition/route.ts`, `lib/ai/tools.ts`,
-  `app/api/coach/route.ts`, `app/api/diet/quick-log/route.ts`, `app/api/check-in/route.ts`,
-  `supabase/functions/proactive-coach/*`).
-- → `nutrition_entries` è la **source of truth** (D001). Va unificato (Fase 0, P0).
+### Dieta — sorgente unificata (P0.1 completata, in attesa di commit)
+- `diet_logs` è **vuota in produzione**; `nutrition_entries` **contiene i dati reali**.
+- `nutrition_entries` è la **source of truth** (D001, D011).
+- **P0.1**: introdotto l'helper server-side `lib/diet/daily-totals.ts`
+  (`getDailyNutritionTotals(supabase, userId, fromDate?, toDate?)`) che aggrega
+  `nutrition_entries` per giorno e normalizza `proteins/carbs/fats → protein_g/carbs_g/fat_g`
+  in **un solo punto**, restituendo `date, calories, protein_g, carbs_g, fat_g, entries_count`.
+  In caso di **errore Supabase/DB l'helper lancia** (non maschera come dieta vuota); una
+  query riuscita senza record resta `[]`.
+- **Letture ora unificate** sull'helper (non più `diet_logs`):
+  `app/api/diet/route.ts` (GET `type=today`, `type=logs`), `lib/ai/tools.ts` (`get_diet_logs`,
+  usato dal Coach), `app/api/check-in/route.ts` (`diet_feedback`). Today legge da
+  `/api/diet?type=logs` → helper.
+- **Scritture invariate** e già corrette su `nutrition_entries`: `/api/nutrition`
+  (NutritionTracker) e `/api/diet/quick-log`.
+- **Writer legacy `diet_logs` disattivato**: `app/api/diet/route.ts` POST `action=log`
+  non scrive più su `diet_logs`; risponde **410 Gone** (deprecato/disattivato). Il payload
+  daily-aggregate non è semanticamente equivalente a una riga per-pasto di
+  `nutrition_entries`, quindi **non** viene reindirizzato. Tabella, migrazione e route
+  restano (D011).
+- **Riferimenti legacy a `diet_logs` rimasti** (fuori scope P0.1):
+  - `supabase/functions/proactive-coach/index.ts` (Edge Function Deno): legge ancora
+    `diet_logs` (oltre a `nutrition_entries`). Da migrare in un task dedicato.
+  - Nessun'altra scrittura attiva a `diet_logs` nel codice Next: l'unica occorrenza
+    `.from('diet_logs')` residua è quella Edge Function.
+- **Nessuna** view SQL, tabella, migrazione o modifica RLS introdotta (D011).
 
 ### Migrazioni — disallineamento tracking vs DB
 - Cartella repo `supabase/migrations/` contiene file fino a **012**
@@ -78,21 +96,24 @@ Data snapshot: **2026-07-19** · Branch: `main` · Ultimo commit: `d40d5fa`
 
 ---
 
-## Working tree (al snapshot)
+## Working tree (dopo P0.1, pre-commit)
 
-Modificati (tracked):
-- `.claude/settings.local.json` — **fuori scope** (config locale).
-- `app/api/coach/route.ts`
-- `app/api/cron/proactive-coach/route.ts`
-- `app/api/cron/weight-reminder/route.ts`
-- `app/api/diet/quick-log/route.ts`
-- `lib/ai/provider.ts`
+Modificati (tracked, in scope P0.1):
+- `app/api/diet/route.ts` — letture via helper; write `action=log` marcato deprecato.
+- `lib/ai/tools.ts` — `get_diet_logs` via helper.
+- `app/api/check-in/route.ts` — `diet_feedback` via helper.
 
-Non tracciati (untracked):
-- `lib/ai/errors.ts` — AIErrorClass/logging (→ BACKLOG **DEFERRED**, non prossimo task).
-- `public/worker-bc2006058c3e6de4.js` — **artefatto di build**, fuori scope.
+Non tracciati (in scope P0.1):
+- `lib/diet/daily-totals.ts` — nuovo helper aggregazione.
 
-Git: `main` è **ahead 1** rispetto a `origin/main`. **Nessun push** effettuato.
+Fuori scope (invariati, da non includere nel commit P0.1):
+- `.claude/settings.local.json` — config locale.
+- `public/worker-bc2006058c3e6de4.js` — artefatto di build.
+
+Refactor AIErrorClass/logging: isolato sul branch `feat/ai-error-logging`
+(commit `8d8cd67`), **non** su main.
+
+Git: `main` ahead di `origin/main` (commit `d40d5fa`, `86bfeb6`). **Nessun push** effettuato.
 
 ---
 
