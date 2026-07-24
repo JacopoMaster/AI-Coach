@@ -8,9 +8,9 @@
 ## Prossimi task — Fase 2 (September Restart)
 
 > **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 in corso**: F2.1 design DONE,
-> **F2.2 DONE** (aggregation layer `lib/restart/`, real-data verification superata). Prossimo task:
-> **F2.3** (schema DB, migration `014`). Riferimenti: D008/D009,
-> **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
+> **F2.2 DONE** (aggregation layer `lib/restart/`), **F2.3 DONE** (migration `014` applicata e
+> verificata sul DB reale 2026-07-24). Prossimo task: **F2.4** (Assessment application/API layer).
+> Riferimenti: D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
 - [x] **DONE — F2.1 · Design & Architecture Restart / Training Strategy** (docs). Entità e confini
@@ -38,11 +38,29 @@
   `baseline.ts` (`buildRestartBaseline`, atomico, no `allSettled`). Esteso `lib/workouts/tonnage.ts`
   (export `parseLegacyReps`, additivo). `user_stats.baseline_tonnage`/`diet_logs` non usati; output
   serializzabile e bounded.
-- [ ] **TODO — F2.3 · Schema DB Restart Assessment + Training Strategy**. Migration `014`
-  (`restart_assessments` immutabile + `training_strategies`, RLS per-utente, trigger
-  `updated_at`, una sola strategy `active`). Applicazione manuale + verifica (come F1.2). **← prossimo.**
+- [x] **DONE — F2.3 · Schema DB Restart Assessment + Training Strategy**. Migration
+  `014_restart_assessments_and_training_strategies.sql` **applicata manualmente via Supabase SQL
+  Editor e verificata sul DB reale (2026-07-24)**: `restart_assessments`/`training_strategies`
+  presenti, **column count 30/20**, RLS attiva, policy assessment SELECT/INSERT own (no UPDATE/DELETE,
+  `authenticated`), policy strategy SELECT/INSERT/UPDATE own (no DELETE, `authenticated`), assessment
+  **senza trigger**, strategy con `trg_..._enforce_update` + `trg_..._updated_at`, funzioni
+  `enforce_training_strategy_update()` + `set_updated_at()` presenti, partial unique
+  `training_strategies_one_active_per_user_uidx`, FK composite `training_strategies_assessment_fk` +
+  `training_strategies_supersedes_fk` entrambe **NO ACTION / DEFERRABLE / INITIALLY DEFERRED**,
+  **row count 0/0** (nessun dato reale). Design (round 1–3): `restart_assessments` **immutabile**
+  (NO `updated_at`/trigger/`status`; snapshot **JSONB versionati**; 4 `*_data_quality`; 10 scalari
+  denormalizzati; risposte manuali nullable; `assessed_*` **UUID nullable SENZA FK**; RLS SELECT+INSERT);
+  `training_strategies` **versionata con core immutabile** (trigger `enforce_training_strategy_update()`:
+  UPDATE consente solo `status`/`review_date`/`workout_plan_id`/`mesocycle_id`; transizioni
+  `active→superseded/completed`, terminali bloccati); **una sola active per utente** (partial unique);
+  same-user FK composite **differibili**. **Requisito futuro F2.6**: persistenza atomica
+  Assessment+Strategy via **RPC/transazione server-side `SECURITY INVOKER`** (UPDATE old→superseded
+  prima di INSERT new active).
 - [ ] **TODO — F2.4 · Assessment application/API layer**. Calcolo baseline + persistenza
-  Assessment; read strategia attiva. Errori generici stile P0.3.
+  Assessment; read strategia attiva. Errori generici stile P0.3. **Nota atomicità (da F2.3)**: il
+  flusso conferma → INSERT Assessment + supersede/INSERT Strategy **non** è atomico col normale
+  client Supabase → valutare RPC/transazione server-side (UPDATE old→superseded prima di INSERT
+  new active, dato che il partial unique index non è DEFERRABLE).
 - [ ] **TODO — F2.5 · AI Strategy Proposal (strutturata)**. Schema Zod + provider + **validazione
   applicativa**. Solo proposta, nessuna write.
 - [ ] **TODO — F2.6 · Strategy confirmation & persistence (D007)**. Conferma utente → persiste
@@ -163,7 +181,7 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart 🔶 IN CORSO (F2.1 design DONE)
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.3 DONE; prossimo F2.4)
 - Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D019** + sezione
   "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 - Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training

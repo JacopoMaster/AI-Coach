@@ -40,13 +40,57 @@
 
 ## Stato attuale (compilato)
 
-- **Data**: 2026-07-19
+- **Data**: 2026-07-24
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `59a9669 feat(coach): expose athlete profile as read-only context`
-  (Fase 1: `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`, `50fca65`).
+- **Ultimo commit (locale)**: `feat(restart): add immutable assessments and versioned strategies
+  schema` (F2.3, questa sessione) sopra `aa3597f` (F2.2). Storico: F2.1 docs `0e7e788`; Fase 1:
+  `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`, `50fca65`.
   `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
   `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.3 — Schema DB Restart Assessment + Training Strategy** (**DONE** — migration `014`
+    **applicata manualmente via Supabase SQL Editor e verificata sul DB reale il 2026-07-24**;
+    3 round di revisione integrità storica):
+    - **Verifica DB reale superata**: `restart_assessments`/`training_strategies` presenti, column
+      count **30/20**, RLS attiva su entrambe, policy assessment SELECT/INSERT own (no UPDATE/DELETE,
+      `authenticated`), policy strategy SELECT/INSERT/UPDATE own (no DELETE, `authenticated`),
+      assessment **senza trigger**, strategy con `trg_..._enforce_update` + `trg_..._updated_at`,
+      funzioni `enforce_training_strategy_update()` + `set_updated_at()` presenti, partial unique
+      `training_strategies_one_active_per_user_uidx`, FK composite `..._assessment_fk` + `..._supersedes_fk`
+      entrambe **NO ACTION / DEFERRABLE / INITIALLY DEFERRED**, **row count 0/0** (nessun dato reale
+      persistito nelle nuove tabelle);
+    - `supabase/migrations/014_restart_assessments_and_training_strategies.sql` (stile F1.2:
+      text+CHECK named, idempotente, verifica read-only + test transazionali commentati in coda;
+      nessun DROP/TRUNCATE/DELETE/INSERT, nessun seed, nessuna modifica a tabelle esistenti);
+    - **`restart_assessments` immutabile** (30 colonne): NO `updated_at`/trigger/`status`; snapshot
+      **JSONB versionati** `baseline_snapshot`+`profile_snapshot` (CHECK `jsonb_typeof='object'`,
+      `*_version ≥ 1`); 4 `*_data_quality`; 10 scalari denormalizzati 1:1 su `RestartBaseline`;
+      risposte manuali **nullable**; link fattuali `assessed_workout_plan_id/mesocycle_id` →
+      **UUID nullable SENZA FK** (SET NULL rimosso: vietato su tabella immutabile; audit → nessun
+      hard delete in-app di plans/mesos; RESTRICT fragile nel cascade `auth.users` → drop FK);
+      RLS **solo SELECT+INSERT** `TO authenticated` → write-once; indici `(user_id,created_at DESC)`,
+      `(user_id,analysis_date DESC)`, nessun GIN;
+    - **`training_strategies`** (20 colonne): `status`, `strategy_type` CHECK `restart`,
+      `review_date > start_date`, `minimum ≤ target` (1–7), explainability non-empty + cardinalità
+      bounded; RLS SELECT/INSERT/UPDATE `TO authenticated`, **no DELETE**; **2 trigger BEFORE UPDATE**:
+      `trg_training_strategies_enforce_update` (core-immutability) poi `trg_..._updated_at` (**riusa**
+      `set_updated_at()` di 013);
+    - **Immutabilità core Strategy (round 2)**: `public.enforce_training_strategy_update()` — UPDATE
+      consente solo `status`/`review_date`/`workout_plan_id`/`mesocycle_id` (+`updated_at` ignorato,
+      `IS DISTINCT FROM`); tutto il resto immutabile ⇒ modifica sostanziale = nuova Strategy con
+      `supersedes_id`. Transizioni: `active→active/superseded/completed`; `superseded`/`completed`
+      **terminali** (bloccati superseded→active, completed→active, completed→superseded,
+      superseded→completed). Non tocca l'INSERT; ordine trigger irrilevante (enforce ignora updated_at);
+    - **Invarianti DB**: partial unique `(user_id) WHERE status='active'`; **same-user FK composite**
+      Assessment→Strategy e self-FK supersedes (`UNIQUE(id,user_id)` target). **Round 3**: entrambe
+      **`ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`** — same-user/integrità preservati (INSERT/
+      UPDATE e delete isolato pendente falliscono al COMMIT) **e** cancellazione account `auth.users`
+      (cascade multi-path) non più bloccata (check differito a fine transazione, nessuna riga
+      pendente). `workout_plan_id/mesocycle_id` restano `SET NULL` (non deferred), same-user NON
+      FK-enforced → ownership in F2.6;
+    - **Atomicità F2.6 confermata**: serve RPC/transazione `SECURITY INVOKER` (UPDATE old→superseded
+      prima di INSERT new active; partial unique non DEFERRABLE). F2.3 non la crea;
+    - **NESSUNA** API/AI/UI/persistenza; `buildRestartBaseline` non toccato; tsc/build/diff-check OK.
   - **F2.2 — Restart Baseline + Data Quality + PlanFit (aggregation layer)** (**DONE** —
     real-data verification superata):
     - dominio `lib/restart/` (11 file): funzioni pure separate dalle query; `buildRestartBaseline(
@@ -134,11 +178,15 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F2.2)**: `npx tsc --noEmit` OK; `npm run build` OK; **71 asserzioni pure**
-  superate (moduli reali compilati in CJS via tsconfig progetto + resolve-hook `@/`); `git diff
-  --check` pulito; **real-data verification superata**. Ricerche finali pulite (vedi sotto).
-- **Stato working tree (F2.2)**: dominio `lib/restart/` (13 file) + `lib/workouts/tonnage.ts`
-  (export additivo). Route dev di verifica **eliminata**. **Nessun** DB/migration/RLS/AI/UI/persistenza.
+- **Test eseguiti (F2.3)**: `npx tsc --noEmit` OK; `npm run build` OK (solo SQL/docs — repo verde);
+  `git diff --check` pulito. **Migration `014` applicata manualmente e verificata sul DB reale
+  (2026-07-24)** — vedi checklist verifica sopra. (F2.2, storico: 71 asserzioni pure + real-data
+  verification superata.)
+- **Stato working tree (F2.3)**: **committato** — migration `014` +
+  `docs/coach-ai-2/{CURRENT_STATE,BACKLOG,SESSION_HANDOFF}.md`. **Nessun** codice applicativo
+  modificato; **nessuna** persistenza reale nelle nuove tabelle (row count 0/0); AI/UI non toccati;
+  `lib/restart` F2.2 invariato. Fuori scope esclusi dal commit e invariati:
+  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. **Nessun push.**
 - **Diagnostica error-honest (permanente, in F2.2)**: `lib/restart/errors.ts`
   (`RestartBaselineQueryError{source,code,cause}`); `queries.ts` e `baseline.ts` etichettano ogni
   sorgente con il proprio `source`. Migliora l'error-honesty senza mascherare nulla.
@@ -198,17 +246,23 @@
   **D018** (flusso ibrido codice→AI→conferma), **D019** (baseline_tonnage separato); + D008/D009,
   D007, D012/D013, D002.
 - **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 in corso** —
-  F2.1 design DONE (`0e7e788`), **F2.2 DONE** (aggregation layer, real-data verification superata; in attesa
-  di verifica su baseline reale).
-- **Prossimo task**: **F2.3 — Schema DB Restart Assessment + Training Strategy** (migration `014`:
-  `restart_assessments` immutabile + `training_strategies`, RLS per-utente, trigger `set_updated_at`,
-  una sola strategy `active`). Stile F1.2 (text+CHECK named, idempotente, applicazione manuale +
-  verifica). La forma dei campi è informata da `RestartBaseline` (F2.2) — vedi `lib/restart/types.ts`.
-- **File da leggere per F2.3**:
-  - `CURRENT_STATE.md` ("Nuove tabelle" + "Stato F2.2"), `DECISIONS.md` (D014/D015),
-    `lib/restart/types.ts`, `supabase/migrations/{013_athlete_profiles,006_spiral_energy}.sql`
-    (pattern RLS/trigger/idempotenza).
-- **Nota**: **F2.2 DONE** (real-data verification superata; route dev eliminata). Prossimo: **F2.3** — non iniziato.
+  F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (migration `014` applicata e
+  verificata sul DB reale 2026-07-24, committata questa sessione).
+- **Prossimo task**: **F2.4 — Assessment application/API layer** (calcolo baseline + persistenza
+  Assessment; read strategia attiva; errori generici stile P0.3). **NON iniziato.** **Requisito
+  atomicità (da F2.3, confermato)**: la persistenza conferma → INSERT Assessment + (UPDATE old active
+  → superseded) + INSERT nuova Strategy active **non** è atomica col normale client Supabase → serve
+  una **RPC/transazione PostgreSQL `SECURITY INVOKER`** (rispetta RLS) che esegua i tre passi in una
+  sola transazione; `UPDATE old→superseded` **prima** di `INSERT new active` (partial unique non
+  DEFERRABLE). Le FK composite same-user sono `DEFERRABLE INITIALLY DEFERRED` → l'ordine di INSERT
+  Assessment/Strategy nella stessa transazione è robusto.
+- **File da leggere per F2.4**:
+  - `supabase/migrations/014_restart_assessments_and_training_strategies.sql` (schema + query di
+    verifica in coda), `CURRENT_STATE.md` ("Stato F2.3" + "Nuove tabelle"), `DECISIONS.md`
+    (D007/D014/D018), `lib/restart/types.ts` (mappatura scalari/snapshot), `lib/profile/server.ts`
+    (pattern read profilo per `profile_snapshot`).
+- **Nota**: **F2.3 DONE** — migration applicata/verificata sul DB reale, **row count 0/0** (nessun
+  dato reale ancora persistito). Prossimo: **F2.4** (non iniziato).
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

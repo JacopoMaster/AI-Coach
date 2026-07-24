@@ -485,7 +485,7 @@ automaticamente (transizione in F2.6).
   schema reale). Route dev di verifica (`app/api/dev/restart-baseline`) **eliminata** (non committata).
   **Stato: DONE.**
 
-### Nuove tabelle (concettuali, SENZA SQL — nascono in F2.3, migration `014`)
+### Nuove tabelle (concettuali — realizzate in F2.3, migration `014`)
 - **`restart_assessments`** (immutabile): `id`, `user_id`, `created_at`, `analysis_period_start/end`,
   scalari baseline chiave, `*_data_quality` (text+CHECK), `performance_by_exercise` (JSONB
   bounded), `planfit` (bounded), risposte manuali, `observations`, `status`. RLS per-utente
@@ -495,6 +495,130 @@ automaticamente (transizione in F2.6).
   `target/minimum_sessions_per_week`, `priorities`, `rationale`, `summary`, `risks_uncertainties`,
   `based_on_assessment_id`, `workout_plan_id?`, `supersedes_id?`, timestamps. RLS per-utente,
   trigger `set_updated_at`, CHECK `minimum ≤ target`. Stile F1.2 (text+CHECK named, idempotente).
+
+> **Nota**: la forma effettiva scritta in F2.3 (migration `014`) diverge in alcuni punti da questa
+> bozza concettuale F2.1 — vedi "Stato F2.3" sotto per lo schema autorevole (assessment
+> **senza** `status`/`updated_at`/trigger perché immutabile; snapshot come **JSONB versionati**;
+> same-user FK Assessment→Strategy garantita a livello DB, **`NO ACTION DEFERRABLE INITIALLY
+> DEFERRED`**; **core della Strategy immutabile via trigger**; link `assessed_*` **senza FK**, non più
+> SET NULL — round di revisione 2026-07-24).
+
+### Stato F2.3 (DONE — migration `014` applicata e verificata sul DB reale)
+> **Migration `014` applicata manualmente (Supabase SQL Editor) e verificata sul DB reale il
+> 2026-07-24.** Nessuna API/AI/UI, nessuna persistenza di dati reali, `buildRestartBaseline` non
+> toccato. **Risultati verificati sul DB**: `restart_assessments` e `training_strategies` presenti
+> (schema `public`); **column count 30 / 20**; **RLS attiva** su entrambe; policy assessment
+> SELECT/INSERT own (no UPDATE/DELETE, ruolo `authenticated`); policy strategy SELECT/INSERT/UPDATE
+> own (no DELETE, ruolo `authenticated`); `restart_assessments` **senza trigger**; `training_strategies`
+> con `trg_training_strategies_enforce_update` + `trg_training_strategies_updated_at`; funzioni
+> `public.enforce_training_strategy_update()` + `public.set_updated_at()` presenti; partial unique
+> `training_strategies_one_active_per_user_uidx`; FK composite `training_strategies_assessment_fk`
+> + `training_strategies_supersedes_fk` entrambe **ON DELETE NO ACTION, DEFERRABLE, INITIALLY
+> DEFERRED**; **row count iniziale 0 / 0** (nessun dato reale persistito). **Prossimo task: F2.4 —
+> Assessment application/API layer** (non iniziato).
+
+- **File**: `supabase/migrations/014_restart_assessments_and_training_strategies.sql`. Stile F1.2
+  (text + CHECK named, idempotente, applicazione manuale + verifica read-only in coda). **Nessun**
+  DROP TABLE/TRUNCATE/DELETE/INSERT; **nessun** dato seed; nessuna modifica ai dati esistenti;
+  `athlete_profiles`/`body_measurements`/workout/diet/`mesocycles`/`user_stats` **non** modificate.
+- **Audit schema pre-migration** (verificato leggendo 001/002): `workout_plans.id` UUID PK
+  (`uuid_generate_v4()`), `mesocycles.id` UUID PK (`gen_random_uuid()`), **entrambe** con
+  `user_id` NOT NULL → `auth.users ON DELETE CASCADE`; **nessuna** `UNIQUE(id,user_id)` su di esse.
+  `public.set_updated_at()` esiste (creata in `013`, applicata/verificata sul DB reale).
+  Migration `014` libera (max attuale `013`; unica anomalia: doppio `010`, già documentata).
+- **`restart_assessments` (immutabile, 30 colonne)**: `id`/`user_id`/`created_at`; analysis period
+  (`analysis_date`, `analysis_period_start`=`start_12w`, `analysis_period_end`=`end`=`analysis_date`,
+  CHECK `start ≤ end` e `analysis_date = end`); **snapshot JSONB versionati** `baseline_snapshot`
+  + `profile_snapshot` (`*_version SMALLINT ≥1`, CHECK `jsonb_typeof = 'object'`, **nessuna**
+  validazione strutturale profonda in SQL → app/Zod in F2.4/F2.6); 4 `*_data_quality` (text CHECK
+  `insufficient|limited|sufficient`); 10 scalari denormalizzati (`sessions_4w/8w/12w`,
+  `last_session_date`, `days_since_last_session`, `latest_weight_kg`, `latest_body_measurement_date`,
+  `days_since_latest_body_measurement`, `nutrition_tracked_days_28d`, `nutrition_tracked_days_ratio`
+  con CHECK di range — mappati 1:1 su `RestartBaseline`); risposte manuali **nullable** (`readiness_score`
+  1–5, `perceived_strength_change` lower/same/higher/unsure, `availability_changed`,
+  `new_limitations_reported` — NULL = domanda non posta, **nessun default** che cancelli la
+  distinzione); link fattuali opzionali `assessed_workout_plan_id`/`assessed_mesocycle_id`
+  → **UUID nullable SENZA FK** (vedi "Integrità storica round 2" sotto). **NO** `updated_at`,
+  **NO** trigger, **NO** `status` draft/finalized. RLS: **solo SELECT + INSERT** (`TO authenticated`;
+  nessuna policy UPDATE/DELETE → write-once). Indici `(user_id, created_at DESC)` e
+  `(user_id, analysis_date DESC)`; **nessun** GIN sui JSONB.
+- **`training_strategies` (20 colonne)**: `id`/`user_id`/`created_at`/`updated_at`; `status`
+  (`active|superseded|completed`), `strategy_type` (CHECK `IN ('restart')`); `start_date`,
+  `review_date` (CHECK `review_date > start_date`); `target/minimum_sessions_per_week`
+  (1–7, `minimum ≤ target`); explainability `primary_objective`/`summary`/`rationale`
+  (CHECK `btrim(...) <> ''`), `priorities` (cardinalità 1–10), `observations`/`risks_uncertainties`
+  (`text[]` DEFAULT `'{}'`, cardinalità ≤ 20); `based_on_assessment_id` NOT NULL, `supersedes_id`
+  NULL, `workout_plan_id`/`mesocycle_id` NULL (`ON DELETE SET NULL` — la Strategy **non** è
+  immutabile). RLS: SELECT + INSERT + **UPDATE** (`TO authenticated`, USING+WITH CHECK), **NO DELETE**.
+  Due trigger BEFORE UPDATE (ordine per nome): `trg_training_strategies_enforce_update`
+  (core-immutability, vedi sotto) poi `trg_training_strategies_updated_at` (**riusa**
+  `public.set_updated_at()` di `013`, non ridefinita). Indici: **partial unique**
+  `(user_id) WHERE status='active'`, `(user_id, created_at DESC)`, `(user_id, review_date)`,
+  `(based_on_assessment_id)`.
+- **Immutabilità core della Strategy (round 2)**: nuova funzione
+  `public.enforce_training_strategy_update()` + trigger BEFORE UPDATE. Un UPDATE può cambiare
+  **solo** `status`, `review_date`, `workout_plan_id`, `mesocycle_id` (+ `updated_at`, ignorato dal
+  trigger). Immutabili dopo INSERT: `id`, `user_id`, `created_at`, `strategy_type`, `start_date`,
+  `target/minimum_sessions_per_week`, `primary_objective`, `summary`, `rationale`, `priorities`,
+  `observations`, `risks_uncertainties`, `based_on_assessment_id`, `supersedes_id` (confronti
+  `IS DISTINCT FROM`). Una modifica sostanziale ⇒ **nuova Strategy** con `supersedes_id`, non
+  riscrittura. **Transizioni status permesse**: `active→active` (aggiorna review/link),
+  `active→superseded`, `active→completed`; `superseded` e `completed` sono **terminali** (bloccati
+  `superseded→active`, `completed→active`, `completed→superseded`, `superseded→completed`). Il
+  trigger non tocca l'INSERT iniziale. Interazione `updated_at`: l'enforcement **ignora**
+  `updated_at`, quindi l'ordine dei trigger non è rilevante per la correttezza; nominato per girare
+  prima dello stamp (`enforce_update` < `updated_at`).
+- **Integrità storica round 2 — FK `assessed_*` senza SET NULL**: `restart_assessments` è
+  immutabile, quindi `ON DELETE SET NULL` è **vietato** (muterebbe una riga già persistita). Audit
+  reale: **nessun hard delete in-app** di `workout_plans`/`mesocycles` (solo lifecycle
+  `is_active`/`status`); unico path di cancellazione = cascade da `auth.users` (rimozione account).
+  `ON DELETE RESTRICT` sarebbe inutile (nessun delete in-app) **e** fragile: nel multi-path cascade
+  di `auth.users`, plan/meso (FK 001/002) vengono cancellati insieme all'assessment (FK 014) e
+  RESTRICT è **immediato/non-deferrable** → se la riga plan/meso è cancellata prima dell'assessment
+  ancora referenziante, la cancellazione account fallirebbe. Scelta: **UUID nullable senza FK**;
+  `baseline_snapshot` (plan_fit/mesocycle_context) resta la fotografia storica autoritativa;
+  esistenza/ownership validate in F2.4/F2.6.
+- **Same-user garantito a livello DB (round 3 — FK deferred)**: `UNIQUE(id, user_id)` su entrambe le
+  tabelle come **target di FK composite** → `training_strategies(based_on_assessment_id, user_id)` →
+  `restart_assessments(id, user_id)` (una Strategy non può puntare all'Assessment di un altro utente)
+  e self-FK `(supersedes_id, user_id)` → `training_strategies(id, user_id)` (MATCH SIMPLE: non
+  verificata se `supersedes_id` NULL). CHECK `supersedes_id <> id`. Entrambe **ON DELETE NO ACTION
+  DEFERRABLE INITIALLY DEFERRED**: il controllo referenziale è **differito al COMMIT** invece che
+  immediato. Effetti: (a) same-user e integrità **restano garantiti** (INSERT/UPDATE e delete
+  isolato con riferimento pendente falliscono comunque, al COMMIT); (b) la **cancellazione account**
+  (`auth.users` cascade multi-path che elimina Assessment e Strategy nella stessa transazione) **può
+  completarsi**, perché a fine transazione non restano righe pendenti — RESTRICT immediato invece
+  poteva abortire in base all'ordine interno del cascade. Side-effect utile: la transazione atomica
+  F2.6 (INSERT Assessment + INSERT Strategy) è più robusta all'ordine. Per
+  `workout_plan_id`/`mesocycle_id` il same-user **non** è FK-enforced (richiederebbe `UNIQUE(id,
+  user_id)` su tabelle esistenti — fuori scope): ownership validata in **F2.6**; restano
+  `ON DELETE SET NULL` (non deferred).
+- **Atomicità futura (F2.6) — CONFERMATA**: con il normale client Supabase, il flusso conferma →
+  INSERT Assessment immutabile + (supersede vecchia active) + INSERT nuova active **non** è atomico
+  (ogni richiesta PostgREST è una transazione a sé). **Requisito**: una **RPC/transazione
+  PostgreSQL `SECURITY INVOKER`** (rispetta RLS) — oppure Edge Function — che esegua i tre passi in
+  una sola transazione. Il partial unique index non è DEFERRABLE → la transazione dovrà
+  `UPDATE old→superseded` **prima** di `INSERT new active`. **F2.3 non crea la RPC**: decisione
+  architetturale registrata per F2.6.
+- **Verification SQL (round 2)**: esistenza tabelle; column count 30/20; RLS ON; policy assessment
+  (SELECT+INSERT, no UPDATE/DELETE) **con `roles={authenticated}`**; policy strategy
+  (SELECT+INSERT+UPDATE, no DELETE) **con `roles={authenticated}`**; partial unique active; **due
+  trigger su strategy in ordine** (`enforce_update` poi `updated_at`); **funzioni**
+  `enforce_training_strategy_update` + `set_updated_at`; **nessun trigger su assessment**; FK
+  (assessed_* **senza FK/senza SET NULL**; same-user assessment/self FK presenti). **Round 3**:
+  check dedicato `confdeltype='a'` (NO ACTION), `condeferrable=t`, `condeferred=t` sui due FK
+  composite same-user. Row count 0. In più **esempi di test transazionale commentati** (dopo apply,
+  riga di test + ROLLBACK): review_date consentito, `active→completed` consentito, rationale
+  bloccata, target_sessions bloccata, `completed→active` bloccata, seconda active bloccata, e un
+  test **concettuale** del FK differito (dangling ref rifiutata al COMMIT — nessuna cancellazione
+  account reale). Usato `policyname` (non `polname`). **Nessun** dato seed auto-inserito.
+- **Verifiche statiche**: `npx tsc --noEmit` OK, `npm run build` OK (solo SQL/docs, repo verde),
+  `git diff --check` pulito.
+- **Rischi / domande aperte**: (1) ~~RESTRICT fragile su cancellazione account~~ **RISOLTO round 3**:
+  i due same-user FK composite sono ora `NO ACTION DEFERRABLE INITIALLY DEFERRED` → integrità
+  same-user preservata **e** cancellazione account non bloccata. (2) `assessed_*` senza FK: possibile
+  UUID "orfano" se il plan/meso viene rimosso — accettato (baseline_snapshot autoritativo; ownership
+  in F2.4/F2.6). (3) atomicità F2.6 richiede RPC/transazione server-side (sopra).
 
 ---
 
