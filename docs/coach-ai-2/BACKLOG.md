@@ -8,8 +8,9 @@
 ## Prossimi task — Fase 2 (September Restart)
 
 > **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 in corso**: F2.1 design DONE,
-> **F2.2 DONE** (aggregation layer `lib/restart/`), **F2.3 DONE** (migration `014` applicata e
-> verificata sul DB reale 2026-07-24). Prossimo task: **F2.4** (Assessment application/API layer).
+> **F2.2 DONE** (aggregation layer `lib/restart/`), **F2.3 DONE** (migration `014` applicata/verificata
+> sul DB reale 2026-07-24), **F2.4 DONE** (application/API layer `lib/restart/assessment/` + route;
+> verifica runtime API superata 2026-07-24). Prossimo task: **F2.5** (AI Strategy Proposal).
 > Riferimenti: D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
@@ -56,11 +57,28 @@
   same-user FK composite **differibili**. **Requisito futuro F2.6**: persistenza atomica
   Assessment+Strategy via **RPC/transazione server-side `SECURITY INVOKER`** (UPDATE old→superseded
   prima di INSERT new active).
-- [ ] **TODO — F2.4 · Assessment application/API layer**. Calcolo baseline + persistenza
-  Assessment; read strategia attiva. Errori generici stile P0.3. **Nota atomicità (da F2.3)**: il
-  flusso conferma → INSERT Assessment + supersede/INSERT Strategy **non** è atomico col normale
-  client Supabase → valutare RPC/transazione server-side (UPDATE old→superseded prima di INSERT
-  new active, dato che il partial unique index non è DEFERRABLE).
+- [x] **DONE — F2.4 · Restart Assessment application/API layer** (allineato alla spec completa
+  §1–§24; **verifica runtime API superata 2026-07-24**: GET→`needs_answers`+baseline+4 domande;
+  POST completo→`ready_for_strategy_proposal`+draft (no `user_id`/`created_at`); POST
+  `availability_changed=true`→`profile_update_required`; **row count 0/0**). Dominio
+  `lib/restart/assessment/` (9 file: versions, types, profile-snapshot, questions, schema, draft,
+  **draft-schema**, **resolve**, server) + route `app/api/restart/assessment` (GET domande + baseline
+  / POST → draft persistence-ready).
+  **NESSUNA persistenza**: non inserisce in `restart_assessments`, non tocca
+  `training_strategies`/`athlete_profiles`/`workout_plans`/`mesocycles` (→ F2.6, atomico, D007/D018).
+  **Stati discriminati**: `profile_required`, `needs_answers` (+`missing_answer_ids`),
+  `profile_update_required` (blocker; un boolean safety `true` **blocca** il draft — il cambiamento va
+  sul Profilo, source of truth), `ready_for_strategy_proposal` (+`assessment_draft`); `unexpected_answer`
+  → 400. Gate profilo prima della baseline; `buildRestartBaseline` (F2.2); `buildAthleteProfileSnapshotV1`
+  (no metadata, `null`≠`[]`, `years_training`→number|null o errore); domande adattive (safety sempre;
+  strength se perf `!== sufficient`; readiness se rientro ≥14g o nessuna sessione); Zod **strict** (solo
+  `{answers}`, `null` non ammesso; rifiuta ogni campo server-derived); `RestartAssessmentDraft` =
+  colonne `restart_assessments` meno `id`/`user_id`/`created_at`; **draft-schema** con Zod (CHECK 014)
+  + invarianti vs baseline; link `assessed_*` guardati (no id stantio). Error-honest (throw su errore
+  DB → 500, mai `profile_required`). Ricerca finale zero-write superata; F2.2 non toccato. tsc/build OK;
+  **76 asserzioni pure**. **Verifica manuale API+draft con sessione reale ancora da eseguire** (§22:
+  GET→needs_answers, POST both-false→ready + row count 0/0, POST boolean true→profile_update_required).
+  **Requisito atomicità (F2.3)**: F2.6 userà RPC/transazione `SECURITY INVOKER`.
 - [ ] **TODO — F2.5 · AI Strategy Proposal (strutturata)**. Schema Zod + provider + **validazione
   applicativa**. Solo proposta, nessuna write.
 - [ ] **TODO — F2.6 · Strategy confirmation & persistence (D007)**. Conferma utente → persiste
@@ -181,7 +199,7 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.3 DONE; prossimo F2.4)
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.4 DONE; prossimo F2.5)
 - Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D019** + sezione
   "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 - Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training

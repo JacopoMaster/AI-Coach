@@ -42,12 +42,45 @@
 
 - **Data**: 2026-07-24
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `feat(restart): add immutable assessments and versioned strategies
-  schema` (F2.3, questa sessione) sopra `aa3597f` (F2.2). Storico: F2.1 docs `0e7e788`; Fase 1:
-  `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`, `50fca65`.
-  `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato sul branch
-  `feat/ai-error-logging` (`8d8cd67`).
+- **Ultimo commit (locale)**: `feat(restart): add restart assessment application and API layer`
+  (F2.4, questa sessione) sopra `8101716` (F2.3) e `aa3597f` (F2.2). Storico: F2.1 docs `0e7e788`;
+  Fase 1: `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`,
+  `50fca65`. `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato
+  sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.4 — Restart Assessment application/API layer** (**DONE** — allineato alla **spec completa
+    §1–§24**; **verifica runtime API superata 2026-07-24**; committato questa sessione):
+    - **Verifica runtime API — SUPERATA**: GET → 200 `needs_answers` (profilo restart-ready, baseline
+      restituita, 4 domande adattive, data quality coerente F2.2); POST completo senza blocker → 200
+      `ready_for_strategy_proposal` + `assessment_draft` (snapshot versions, quality/scalari/sessions
+      4/8/12 coerenti, plan/meso ID server-derived, **no `user_id`/`created_at`**); POST
+      `availability_changed=true` → 200 `profile_update_required` (blocker `update_schedule_availability`,
+      nessun draft); **zero persistenza: `restart_assessments`=0, `training_strategies`=0**;
+    - dominio `lib/restart/assessment/` (**9 file**): `versions.ts` (costanti snapshot version),
+      `types.ts` (`RestartAssessmentDraft` = colonne `restart_assessments` meno `id`/`user_id`/
+      `created_at`; `AthleteProfileSnapshotV1`; `RestartQuestion`; **stati discriminati**
+      `profile_required`/`needs_answers`/`profile_update_required`/`ready_for_strategy_proposal`
+      + `unexpected_answer`), `profile-snapshot.ts` (esclude metadata, `null`≠`[]`,
+      `years_training`→number|null o errore), `questions.ts` (adattivo: safety sempre; strength se
+      perf `!== sufficient`; readiness se rientro ≥14g/nessuna sessione), `schema.ts` (Zod **strict**:
+      solo `{answers}`, `null` non ammesso, rifiuta ogni campo server-derived), `draft.ts`
+      (mapping completo, assente→null, link `assessed_*` guardati su has_active_plan/exists),
+      **`draft-schema.ts`** (validazione runtime draft: Zod dei CHECK 014 + **invarianti vs baseline**),
+      **`resolve.ts`** (`resolveRestartPost` puro: unexpected→400, missing→needs_answers,
+      safety-boolean-true→**profile_update_required** con blocker, altrimenti build+validate→
+      ready_for_strategy_proposal; `isRestartReady`), `server.ts` (orchestrazione read-only,
+      error-honest: gate profilo prima della baseline; throw su errore DB → 500);
+    - route `app/api/restart/assessment` (GET domande+baseline / POST `{answers}`; 401/400/500
+      generico; `unexpected_answer`→400; `user_id` solo dalla sessione; **nessuna write**, **nessun
+      log** di snapshot/baseline/answers);
+    - **NESSUNA** persistenza (no `.from/.insert/.update/.upsert/.delete/.rpc` nei file F2.4; verificato),
+      no AI, no prompt, no UI, no migration, DB/RLS/Workout/Meso/Profile invariati; F2.2
+      (`lib/restart/*.ts`) non toccato; `buildRestartBaseline` non toccato;
+    - tsc/build OK (`/api/restart/assessment` registrata), **76 asserzioni pure** superate;
+    - **⚠️ la spec F2.4 completa (§1–§24) è ora arrivata** (era troncata a §7): implementazione
+      **riallineata** — aggiunti `profile_update_required` + blockers, gli stati discriminati
+      `needs_answers`/`ready_for_strategy_proposal`, `unexpected_answer`→400, `draft-schema` con
+      invarianti. **Verifica manuale API+draft (sessione reale) da eseguire prima di DONE** (§22).
   - **F2.3 — Schema DB Restart Assessment + Training Strategy** (**DONE** — migration `014`
     **applicata manualmente via Supabase SQL Editor e verificata sul DB reale il 2026-07-24**;
     3 round di revisione integrità storica):
@@ -178,15 +211,18 @@
       aggiunta ("minimo attrito di tracking");
     - **girovita/`waist_cm`**: **non** requisito e **non** task pianificato (Fase 2 aggiornata);
       baseline Restart usa solo metriche già in `body_measurements` + performance/frequenza/aderenza.
-- **Test eseguiti (F2.3)**: `npx tsc --noEmit` OK; `npm run build` OK (solo SQL/docs — repo verde);
-  `git diff --check` pulito. **Migration `014` applicata manualmente e verificata sul DB reale
-  (2026-07-24)** — vedi checklist verifica sopra. (F2.2, storico: 71 asserzioni pure + real-data
-  verification superata.)
-- **Stato working tree (F2.3)**: **committato** — migration `014` +
-  `docs/coach-ai-2/{CURRENT_STATE,BACKLOG,SESSION_HANDOFF}.md`. **Nessun** codice applicativo
-  modificato; **nessuna** persistenza reale nelle nuove tabelle (row count 0/0); AI/UI non toccati;
-  `lib/restart` F2.2 invariato. Fuori scope esclusi dal commit e invariati:
-  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. **Nessun push.**
+- **Test eseguiti (F2.4)**: `npx tsc --noEmit` OK; `npm run build` OK (`/api/restart/assessment`
+  registrata); `git diff --check` pulito; **76 asserzioni pure** superate (moduli reali compilati in
+  CJS via tsconfig dedicato in scratchpad + `NODE_PATH` per `zod`; `@/` type-only erasi). Ricerca
+  finale zero-write superata (nessun `.from/.insert/.update/.upsert/.delete/.rpc` nei file F2.4).
+  **Verifica runtime API con sessione reale — SUPERATA (2026-07-24)**. Regressione F2.2:
+  `lib/restart/*.ts` non modificati (git) + tsc/build verdi. (F2.3, storico: migration `014` applicata
+  e verificata sul DB reale 2026-07-24, committata `8101716`.)
+- **Stato working tree (F2.4)**: **committato** questa sessione — 9 file `lib/restart/assessment/` +
+  `app/api/restart/assessment/route.ts` + docs coach-ai-2 (`CURRENT_STATE`, `BACKLOG`,
+  `SESSION_HANDOFF`). **Nessuna** persistenza, AI, prompt, UI, migration; DB/RLS/Workout/Meso/Profile
+  invariati; `lib/restart` F2.2 e `training_strategies` non toccati. Fuori scope esclusi dal commit e
+  invariati: `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. **Nessun push.**
 - **Diagnostica error-honest (permanente, in F2.2)**: `lib/restart/errors.ts`
   (`RestartBaselineQueryError{source,code,cause}`); `queries.ts` e `baseline.ts` etichettano ogni
   sorgente con il proprio `source`. Migliora l'error-honesty senza mascherare nulla.
@@ -246,23 +282,25 @@
   **D018** (flusso ibrido codice→AI→conferma), **D019** (baseline_tonnage separato); + D008/D009,
   D007, D012/D013, D002.
 - **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 in corso** —
-  F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (migration `014` applicata e
-  verificata sul DB reale 2026-07-24, committata questa sessione).
-- **Prossimo task**: **F2.4 — Assessment application/API layer** (calcolo baseline + persistenza
-  Assessment; read strategia attiva; errori generici stile P0.3). **NON iniziato.** **Requisito
-  atomicità (da F2.3, confermato)**: la persistenza conferma → INSERT Assessment + (UPDATE old active
-  → superseded) + INSERT nuova Strategy active **non** è atomica col normale client Supabase → serve
-  una **RPC/transazione PostgreSQL `SECURITY INVOKER`** (rispetta RLS) che esegua i tre passi in una
-  sola transazione; `UPDATE old→superseded` **prima** di `INSERT new active` (partial unique non
-  DEFERRABLE). Le FK composite same-user sono `DEFERRABLE INITIALLY DEFERRED` → l'ordine di INSERT
-  Assessment/Strategy nella stessa transazione è robusto.
-- **File da leggere per F2.4**:
-  - `supabase/migrations/014_restart_assessments_and_training_strategies.sql` (schema + query di
-    verifica in coda), `CURRENT_STATE.md` ("Stato F2.3" + "Nuove tabelle"), `DECISIONS.md`
-    (D007/D014/D018), `lib/restart/types.ts` (mappatura scalari/snapshot), `lib/profile/server.ts`
-    (pattern read profilo per `profile_snapshot`).
-- **Nota**: **F2.3 DONE** — migration applicata/verificata sul DB reale, **row count 0/0** (nessun
-  dato reale ancora persistito). Prossimo: **F2.4** (non iniziato).
+  F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (`8101716`, migration `014`
+  applicata/verificata sul DB reale 2026-07-24), **F2.4 DONE** (application/API layer, verifica runtime
+  API superata 2026-07-24, committato questa sessione).
+- **Prossimo task**: **F2.5 — AI Strategy Proposal (strutturata)**: schema Zod + provider +
+  validazione applicativa; **solo proposta, nessuna write**. L'AI riceve Profile + Baseline +
+  DataQuality + PlanFit + risposte (dal `RestartAssessmentDraft`/`ready_for_strategy_proposal` di
+  F2.4) e produce una **proposta strutturata (non una write)** → codice valida schema/coerenza/
+  guardrail (D018 passi 6–9). **NON iniziato.** **Requisito atomicità (F2.6, confermato F2.3)**:
+  INSERT Assessment + (UPDATE old active → superseded)
+  + INSERT nuova Strategy active **non** è atomico col client Supabase → **RPC/transazione
+  `SECURITY INVOKER`** (UPDATE old→superseded prima di INSERT new active; partial unique non
+  DEFERRABLE; le FK same-user sono DEFERRABLE INITIALLY DEFERRED).
+- **File da leggere per F2.5**:
+  - `lib/restart/assessment/*` (types/draft/questions/resolve/server), `lib/restart/types.ts`,
+    `DECISIONS.md` (D006/D007/D014/D018), `supabase/migrations/014...sql` (colonne
+    `training_strategies`: explainability, target/minimum, status, review_date), `lib/ai/provider.ts`
+    + `lib/ai/models.ts` (provider/modelli), `lib/ai/system-prompt.ts` (stile).
+- **Nota**: **F2.4 DONE** (verifica runtime API superata 2026-07-24, committato questa sessione).
+  Prossimo: **F2.5** (non iniziato).
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

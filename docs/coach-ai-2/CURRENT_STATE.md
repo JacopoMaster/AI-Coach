@@ -620,6 +620,86 @@ automaticamente (transizione in F2.6).
   UUID "orfano" se il plan/meso viene rimosso — accettato (baseline_snapshot autoritativo; ownership
   in F2.4/F2.6). (3) atomicità F2.6 richiede RPC/transazione server-side (sopra).
 
+### Stato F2.4 (DONE — application/API layer, verifica runtime API superata)
+> Layer applicativo server-side del Restart Assessment, **allineato alla spec F2.4 completa**
+> (§1–§24) e **verificato a runtime con sessione autenticata reale il 2026-07-24**. **NESSUNA
+> persistenza**: F2.4 **non** inserisce in `restart_assessments` e **non** tocca
+> `training_strategies`/`athlete_profiles`/`workout_plans`/`mesocycles` (persistenza atomica → F2.6,
+> dopo conferma utente, D007/D018). Nessuna AI, nessun prompt, nessuna UI, nessuna migration, DB/RLS
+> non toccati. tsc/build OK, **76 asserzioni pure superate**. **Verifica runtime API — SUPERATA**:
+> GET → 200 `needs_answers` (profilo restart-ready, baseline restituita, 4 domande adattive corrette,
+> data quality coerente con F2.2); POST completo senza blocker → 200 `ready_for_strategy_proposal`
+> con `assessment_draft` (snapshot versions corrette, quality/scalari/sessions 4/8/12 coerenti con la
+> baseline, plan/meso ID server-derived, **nessun `user_id`/`created_at` nel draft**); POST con
+> `availability_changed=true` → 200 `profile_update_required` (blocker `update_schedule_availability`,
+> **nessun** draft); **zero persistenza confermata: `restart_assessments`=0, `training_strategies`=0**.
+
+- **Nuovo dominio `lib/restart/assessment/`** (9 file puri/orchestrazione + route):
+  - `versions.ts` — `RESTART_BASELINE_SNAPSHOT_VERSION=1`, `ATHLETE_PROFILE_SNAPSHOT_VERSION=1`
+    (unica fonte; nessun `1` hardcoded).
+  - `types.ts` — `RestartAssessmentDraft` (mirror **1:1** colonne INSERTabili `restart_assessments`
+    **meno** `id`/`user_id`/`created_at`); `AthleteProfileSnapshotV1`; `RestartQuestion`; **stati
+    discriminati**: `profile_required`, `needs_answers`, `profile_update_required`,
+    `ready_for_strategy_proposal` (+ `unexpected_answer` interno → 400).
+  - `profile-snapshot.ts` — `buildAthleteProfileSnapshotV1` **puro**: esclude
+    `user_id`/`created_at`/`updated_at`; preserva `null` vs `[]`; `years_training`→`number|null`
+    (stringa PostgREST → numero; non valido → **errore**, mai inventato); 32 campi.
+  - `questions.ts` — `deriveRestartQuestions(baseline)` **puro/adattivo** (§8/§9): **safety sempre**
+    (`new_limitations_reported`, `availability_changed`); `perceived_strength_change` se
+    `performance_data_quality !== 'sufficient'`; `readiness_score` se rientro (`days_since_last_session`
+    null **oppure** `≥ READINESS_RECALIBRATION_GAP_DAYS=14`, soglia centralizzata).
+  - `schema.ts` — Zod **strict**: request accetta **solo** `{ answers }` (4 campi; `null` **non**
+    ammesso per simulare "non posta" → si omette); rifiuta ogni campo server-derived
+    (baseline/snapshot/quality/counts/body/PlanFit/plan_id/meso_id/user_id/analysis_date/chiavi
+    ignote); `validateAnswersAgainstQuestions` (missing required / unexpected).
+  - `draft.ts` — `buildRestartAssessmentDraft` **puro**: period, snapshot versionati, 4 quality, 10
+    scalari, risposte (assente → `null`), link **guardati** (`has_active_plan ? plan_id : null`,
+    `active_mesocycle_exists ? active_mesocycle_id : null` — nessun id "stantio").
+  - `draft-schema.ts` (**§15**) — validazione runtime del draft: **Zod mirato** che riflette i CHECK
+    di 014 (date ISO, `start ≤ end`, `analysis_date === end`, versioni ≥1, snapshot = oggetti JSON,
+    quality enum, counts ≥0, weight >0, tracked 0..28, ratio 0..1, readiness 1..5, uuid|null) **+
+    invarianti applicativi** (`validateDraft(draft, baseline)`: ogni scalare/quality/link **deve
+    coincidere** con la baseline; `profile_snapshot` senza metadata; `baseline_snapshot === baseline`).
+    Scelta: **non** ri-dichiarare l'intera `RestartBaseline` (duplicazione fragile) — Zod mirato +
+    invarianti vs baseline prodotta internamente.
+  - `resolve.ts` (**§10/§12/§13**) — `resolveRestartPost(baseline, profileSnapshot, answers)` **puro**:
+    (1) risposta a domanda non posta → `unexpected_answer` (→400); (2) required mancante →
+    `needs_answers` (+`missing_answer_ids`); (3) `new_limitations_reported=true` **o**
+    `availability_changed=true` → **`profile_update_required`** (blocker `update_training_limitations`/
+    `update_schedule_availability`; il cambiamento va sul **Profilo**, non duplicato nell'Assessment);
+    (4) altrimenti build+`validateDraft` → `ready_for_strategy_proposal`. `isRestartReady(completeness)`
+    puro. Un'invariante rotta = **errore interno → 500** (mai colpa del client).
+  - `server.ts` — orchestrazione **read-only, error-honest**: legge Profilo (`getAthleteProfile`,
+    **throw** su errore DB → 500, **≠** `profile_required`); gate completeness — se non
+    restart-ready **STOP prima** della baseline costosa (`profile_required` + `missing_restart_fields`);
+    altrimenti `buildRestartBaseline` (F2.2) → domande (GET) / `resolveRestartPost` (POST). **Nessun
+    try/catch che maschera errori F2.2.**
+- **Route `app/api/restart/assessment/route.ts`** (`GET`/`POST`, stile P0.3/profile): 401 anonimo;
+  **GET** → `profile_required` oppure `{ status:'needs_answers', completeness, questions, baseline }`
+  (baseline bounded, own data); **POST** `{ answers }` → **400** body malformato (Zod strict) o
+  `unexpected_answer`; **200** `profile_required`/`needs_answers`(+`missing_answer_ids`)/
+  `profile_update_required`/`ready_for_strategy_proposal`(+`assessment_draft`,`questions`,`answers`);
+  **500 generico** su errore DB/invariante (nessun dettaglio Supabase/stack/`user_id`/token/cookie;
+  **nessun** log di snapshot/baseline/answers). `user_id` **solo** dalla sessione. **Registrata.**
+- **Zero-persistence — ricerca finale superata**: nessun `.from(`/`.insert(`/`.update(`/`.upsert(`/
+  `.delete(`/`.rpc(` nei file F2.4; riferimenti alle tabelle solo in commenti; F2.2 (`lib/restart/*.ts`)
+  **non** modificati; nessun ID fidato dal client; nessun errore mascherato.
+- **Verifiche**: `npx tsc --noEmit` OK, `npm run build` OK (`/api/restart/assessment` registrata),
+  `git diff --check` pulito; **76 asserzioni pure** (completeness/gate, snapshot no-metadata/null-vs-[]/
+  years_training, domande adattive, Zod strict, applicabilità risposte, `resolveRestartPost` per tutti
+  gli stati incl. profile_update_required/unexpected_answer, mapping draft, `validateDraft`
+  Zod+invarianti incl. mismatch scalare/quality/plan-id e metadata nel profile_snapshot). Moduli reali
+  compilati in CJS (scratchpad) + `NODE_PATH` per `zod`.
+- **Checklist verifica manuale (§22) — ESEGUITA E SUPERATA (2026-07-24)**: GET con profilo reale
+  restart-ready/complete → `needs_answers` con le domande attese (new_limitations, availability,
+  perceived_strength perché performance limited, readiness perché break > 14g), baseline restituita,
+  data quality coerente con F2.2; POST con entrambi i boolean `false` + risposte richieste →
+  `ready_for_strategy_proposal` + `assessment_draft` (snapshot versions, quality/scalari/sessions,
+  plan/meso ID server-derived, nessun `user_id`/`created_at`), **row count
+  `restart_assessments`/`training_strategies` = 0**; POST con `availability_changed=true` →
+  `profile_update_required` (blocker `update_schedule_availability`, nessun draft). Nessuna route dev
+  temporanea usata: verificata la vera API F2.4.
+
 ---
 
 ## Principi di prodotto
