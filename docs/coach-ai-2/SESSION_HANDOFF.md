@@ -42,13 +42,59 @@
 
 - **Data**: 2026-07-24
 - **Branch**: `main`
-- **Ultimo commit (locale)**: **F2.5 committato questa sessione** `feat(restart): add AI strategy proposal
-  layer and API` sopra `fc9d965` (F2.4), `8101716` (F2.3), `aa3597f` (F2.2). **F2.5 DONE — verifica AI
-  runtime reale (chiamata Anthropic con sessione autenticata reale) SUPERATA il 2026-07-24**. Storico: F2.1 docs `0e7e788`;
+- **Ultimo commit (locale)**: **F2.6a committato questa sessione** `feat(restart): add confirmation
+  idempotency schema and atomic RPC` sopra `2a777db` (F2.5), `fc9d965` (F2.4), `8101716` (F2.3),
+  `aa3597f` (F2.2). **F2.6a DONE — migration `015` applicata manualmente su Supabase e verificata sul DB
+  reale il 2026-07-24**. Storico: F2.1 docs `0e7e788`;
   Fase 1: `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`,
   `50fca65`. `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato
   sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.6a — Idempotency schema + atomic confirmation RPC** (**DONE** — **committato questa sessione**;
+    migration **applicata manualmente su Supabase e verificata sul DB reale il 2026-07-24**; primo task
+    del flusso Restart che prepara una write permanente):
+    - **Verifica DB reale — SUPERATA (2026-07-24)**: `restart_assessments` **31 colonne**;
+      `confirmation_id` uuid/NOT NULL/**no default** + unique `restart_assessments_confirmation_id_key`;
+      unique index `training_strategies_one_per_assessment_uidx`; RPC `confirm_restart_strategy` presente
+      con firma `(p_confirmation_id uuid, p_assessment jsonb, p_strategy jsonb,
+      p_expected_active_strategy_id uuid)` → `TABLE(assessment_id uuid, strategy_id uuid, created_new
+      boolean)`; **SECURITY INVOKER** + **VOLATILE** + `search_path=public,pg_temp`; ACL `authenticated`
+      execute=**true**, anon=**false**, PUBLIC=**false**; FK composite same-user ancora **NO ACTION /
+      DEFERRABLE / INITIALLY DEFERRED**; **RLS attiva**; **policy F2.3 invariate**; **trigger Strategy
+      invariati** (`trg_training_strategies_enforce_update`, `trg_training_strategies_updated_at`);
+      **row count 0/0** (nessuna conferma/write reale eseguita). Idempotenza (`confirmation_id`), unique
+      one-strategy-per-assessment, advisory lock per-utente e stale guard presenti nella RPC.
+    - **File unico**: `supabase/migrations/015_restart_confirmation_idempotency_and_rpc.sql` (stile
+      F1.2/F2.3: idempotente, applicazione manuale + verifica read-only + test transazionali commentati
+      in coda; **nessun** DROP/TRUNCATE/DELETE dati, **nessun** seed, **nessuna** modifica a policy RLS/
+      trigger/FK composite F2.3);
+    - **`restart_assessments.confirmation_id`** `uuid` **NOT NULL UNIQUE** (`restart_assessments_confirmation_id_key`,
+      globale) **senza DEFAULT**; rollout robusto ADD COLUMN→backfill `gen_random_uuid()`→SET NOT NULL→
+      ADD CONSTRAINT (guardato); immutabilità invariata → **31 colonne**;
+    - **`training_strategies_one_per_assessment_uidx`** UNIQUE su `(based_on_assessment_id)` (un Assessment
+      → una sola Strategy);
+    - **RPC `public.confirm_restart_strategy(p_confirmation_id, p_assessment jsonb, p_strategy jsonb,
+      p_expected_active_strategy_id)` RETURNS TABLE(assessment_id, strategy_id, created_new)**:
+      **SECURITY INVOKER**, VOLATILE, `search_path=public,pg_temp`; identità **solo** `auth.uid()`
+      (mai `user_id` param/JSON); **advisory xact lock per-utente**; **idempotency lookup prima** dello
+      staleness check; **expected-active guard NULL-safe** → `restart_confirmation_stale`; **supersede
+      old active prima** dell'INSERT new active (partial unique `active` non DEFERRABLE, verifica
+      ROW_COUNT=1); mapping esplicito whitelist (no `jsonb_populate_record`, no dynamic SQL, no
+      concatenazione; array `jsonb→text[]`); id/user_id/status/created_at/link server-decided; **rollback
+      completo** su errore (nessun handler che maschera); replay → stesse righe `created_new=false`;
+    - **Privilegi**: `REVOKE ALL` da PUBLIC/anon, `GRANT EXECUTE` solo a `authenticated` (firma esatta);
+      SELECT tabelle invariati; nessun service-role;
+    - **Decisioni aggiunte**: **D020** (signed confirmation artifact — solo formalizzata, HMAC in F2.6b),
+      **D021** (atomic & idempotent persistence via RPC);
+    - **Limite direct-write documentato** (§18/D021): SECURITY INVOKER rispetta RLS ma le policy attuali
+      consentono write dirette dell'utente sulle **proprie** righe (rischio self-data, mai cross-user);
+      hardening "RPC-only writes" = decisione separata, **non** introdotto ora;
+    - tsc/build OK, `git diff --check` pulito, **static audit SQL superato** (no `p_user_id`, ordine
+      idempotency/staleness, supersede/insert, advisory lock, SECURITY INVOKER, ACL, no dynamic SQL, no
+      seed; F2.4/F2.5 applicativi non toccati); **migration applicata e verificata sul DB reale
+      2026-07-24 → DONE**, **row count 0/0**;
+    - **⚠️ NON implementati in F2.6a** (→ F2.6b): token HMAC, env `RESTART_CONFIRMATION_SECRET`, confirm
+      route, modifica al successo di F2.5, chiamate AI/UI.
   - **F2.5 — AI Strategy Proposal (strutturata)** (**DONE** — allineata alla spec §1–§26;
     **committata questa sessione**; **verifica AI runtime reale con sessione autenticata reale
     SUPERATA il 2026-07-24**):
@@ -330,16 +376,17 @@
 - **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 in corso** —
   F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (`8101716`, migration `014`
   applicata/verificata sul DB reale 2026-07-24), **F2.4 DONE** (`fc9d965`, verifica runtime API
-  superata), **F2.5 DONE** (committato questa sessione; verifica AI runtime reale + structured tool use
-  + verifica qualitativa + Profile guardrails + zero persistence SUPERATE il 2026-07-24). Prossimo: **F2.6**.
-- **Stato working tree (F2.5)**: **committato questa sessione** — 9 file `lib/restart/strategy-proposal/`
-  (`types`, `schema`, `context`, `prompt`, `provider`, `proposal`, `orchestrate`, `server`, `errors`) +
-  `app/api/restart/strategy-proposal/route.ts` + `lib/ai/models.ts` (chiave `restartStrategy`) + docs
-  coach-ai-2 (`CURRENT_STATE`, `BACKLOG`, `SESSION_HANDOFF`). Fuori scope invariati/esclusi dal commit:
-  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. tsc/build OK, **55 asserzioni
-  pure**, `git diff --check` pulito, ricerche finali pulite. **Nessuna** persistenza/UI/migration;
-  Workout Plan/Mesocycle non toccati; nuove tabelle a **0/0**. **Nessun push.** Commit:
-  `feat(restart): add AI strategy proposal layer and API`.
+  superata), **F2.5 DONE** (`2a777db`; verifica AI runtime reale + structured tool use + verifica
+  qualitativa + Profile guardrails + zero persistence SUPERATE il 2026-07-24), **F2.6a DONE** (committato
+  questa sessione; migration `015` applicata e verificata sul DB reale il 2026-07-24). Prossimo: **F2.6b**.
+- **Stato working tree (F2.6a)**: **committato questa sessione** — **file unico**
+  `supabase/migrations/015_restart_confirmation_idempotency_and_rpc.sql` + docs coach-ai-2 (`DECISIONS`,
+  `CURRENT_STATE`, `BACKLOG`, `SESSION_HANDOFF`). Fuori scope invariati/esclusi dal commit:
+  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. tsc/build OK, `git diff --check`
+  pulito, static audit SQL superato. **Nessuna** modifica applicativa/API/UI/AI; policy RLS/trigger/FK
+  composite F2.3 invariati; **migration applicata e verificata sul DB reale**, **row count 0/0** (nessuna
+  conferma/write reale). **Nessun push.** Commit: `feat(restart): add confirmation idempotency schema and
+  atomic RPC`.
 - **F2.5 — verifica AI runtime reale (§21) ESEGUITA E SUPERATA (2026-07-24)**:
   `POST /api/restart/strategy-proposal` con sessione autenticata reale → HTTP **200**,
   `status: ready_for_confirmation`; `assessment_draft` presente; `strategy_proposal` presente con
@@ -351,23 +398,28 @@
   rientro graduale non punitivo; sessione ridotta > sessione saltata; **nessuna prescrizione concreta**
   (esercizi/serie/reps/carichi/calorie/macro/integratori), nessuna diagnosi, nessuna invenzione;
   **nuove tabelle ancora 0/0** (`restart_assessments`/`training_strategies`).
-- **Prossimo task**: **F2.6 — Confirm and persist Assessment + Strategy atomically (D007/D018)**.
-  **NON iniziato.** Requisiti già stabiliti:
-  - **non fidarsi** di `assessment_draft` o `strategy_proposal` inviati dal client;
-  - **ricostruzione e nuova validazione server-side** (mai persistere ciecamente draft/proposta dal client);
-  - **transazione atomica** tramite **RPC PostgreSQL `SECURITY INVOKER`** (rispetta RLS);
-  - eventuale **old active Strategy → `superseded` prima** dell'INSERT della nuova `active`;
-  - **INSERT Assessment e Strategy nella stessa transazione**;
-  - **partial unique index `active` non DEFERRABLE** (quindi UPDATE old→superseded prima di INSERT new active);
-  - **FK composite same-user già DEFERRABLE INITIALLY DEFERRED**;
-  - validare ownership `workout_plan_id`/`mesocycle_id` (same-user non FK-enforced);
-  - **idempotency e gestione doppia conferma ancora da progettare in F2.6.**
-- **File da leggere per F2.6**:
-  - `lib/restart/strategy-proposal/*` (types/proposal/server per la forma della proposta), `lib/restart/
-    assessment/*` (draft/types/server), `supabase/migrations/014...sql` (colonne + trigger
-    immutabilità + partial unique + FK differite), `DECISIONS.md` (D007/D014/D018).
-- **Nota**: **F2.5 DONE** (committato questa sessione; verifica AI runtime reale + qualitativa SUPERATE
-  2026-07-24). **F2.4 DONE** (committato `fc9d965`).
+- **F2.6a — applicazione + verifica manuale (Supabase SQL Editor) ESEGUITA E SUPERATA (2026-07-24)**:
+  migration `015` applicata; verification query read-only confermate: `restart_assessments` **31 colonne**;
+  `confirmation_id` uuid/NOT NULL/**no default** + UNIQUE presente; `training_strategies_one_per_assessment_uidx`
+  presente; `confirm_restart_strategy` presente con **SECURITY INVOKER** (`prosecdef=false`), **VOLATILE**
+  (`provolatile='v'`), `search_path=public,pg_temp`, params/return corretti, **nessun `user_id`** nei
+  parametri; ACL: `authenticated` execute=true, PUBLIC/anon=false; FK composite F2.3 ancora differibili;
+  RLS attiva; policy/trigger invariati; **row count 0/0** (nessuna conferma/write reale eseguita).
+- **Prossimo task**: **F2.6b — Signed confirmation token + confirm API (D007/D020/D021)**. **NON iniziato.**
+  Dovrà: **modificare il successo di F2.5** per emettere un **token firmato** (HMAC, nuova env
+  **`RESTART_CONFIRMATION_SECRET`**, **breve scadenza**) contenente `confirmation_id` + **normalized
+  answers** + **Assessment fingerprint** + **Strategy Proposal firmata** + **expected active Strategy**,
+  associato all'utente **senza esporre `user_id`**; al confirm **ricostruire l'Assessment server-side**,
+  **confrontare il fingerprint**, **rivalidare** la Strategy contro il Profilo corrente, chiamare
+  **esclusivamente** la RPC F2.6a; **mai** fidarsi di draft/proposta libera dal client.
+- **File da leggere per F2.6b**:
+  - `supabase/migrations/015...sql` (firma RPC + semantica idempotency/stale), `lib/restart/strategy-proposal/*`
+    (types/proposal/server/orchestrate: forma proposta + stato `ready_for_confirmation`), `lib/restart/
+    assessment/*` (draft/types/server + `RestartAssessmentDraft` per il fingerprint), `lib/ai/models.ts`,
+    `DECISIONS.md` (D006/D007/D020/D021).
+- **Nota**: **F2.6a DONE** (committato questa sessione; migration `015` applicata e verificata sul DB
+  reale 2026-07-24; nessuna conferma/write reale, tabelle 0/0). **F2.5 DONE** (`2a777db`). **F2.4 DONE**
+  (`fc9d965`). **F2.6 complessiva NON DONE** (manca F2.6b).
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

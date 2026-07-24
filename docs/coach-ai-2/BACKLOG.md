@@ -12,7 +12,9 @@
 > sul DB reale 2026-07-24), **F2.4 DONE** (application/API layer `lib/restart/assessment/` + route;
 > verifica runtime API superata 2026-07-24), **F2.5 DONE** (structured tool proposal + Zod + Profile
 > guardrails, un solo repair retry, **zero persistenza**; **verifica AI runtime reale + qualitativa
-> superata 2026-07-24**). Prossimo task: **F2.6** (Confirm and persist Assessment + Strategy atomically).
+> superata 2026-07-24**). **F2.6 divisa in F2.6a (migration/RPC) + F2.6b (token + confirm API)**:
+> **F2.6a DONE** (migration `015`: `confirmation_id` + RPC atomica idempotente; **applicata e verificata
+> sul DB reale 2026-07-24**). Prossimo task: **F2.6b** (signed confirmation token + confirm API).
 > Riferimenti: D006/D007, D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
@@ -111,15 +113,35 @@
   use verificato; verifica qualitativa superata (grounding, cautela su domini `limited`, nutrition
   missing = assente, nessuna prescrizione/diagnosi/invenzione); **nuove tabelle 0/0**. **→ DONE.**
   **F2.6 dovrà ri-validare server-side, mai persistere ciecamente draft/proposta dal client.**
-- [ ] **TODO — F2.6 · Confirm and persist Assessment + Strategy atomically (D007/D018)**. Conferma
-  utente → persiste Assessment immutabile + Strategy (active) + link; transizione mesociclo/piano solo
-  se confermata. **Requisiti già stabiliti**: non fidarsi di `assessment_draft`/`strategy_proposal` dal
-  client → **ricostruzione e nuova validazione server-side**; **transazione atomica** via **RPC
-  PostgreSQL `SECURITY INVOKER`**; eventuale old active Strategy → `superseded` **prima** dell'INSERT
-  della nuova `active`; **INSERT Assessment e Strategy nella stessa transazione**; **partial unique
-  index `active` non DEFERRABLE**; **FK composite same-user già DEFERRABLE INITIALLY DEFERRED**; validare
-  ownership `workout_plan_id`/`mesocycle_id`; **idempotency e gestione doppia conferma ancora da
-  progettare in F2.6.**
+- [x] **DONE — F2.6a · Idempotency schema +
+  atomic confirmation RPC (D007/D018/D020/D021)**. Migration `015_restart_confirmation_idempotency_and_rpc.sql`
+  **applicata manualmente via Supabase SQL Editor e verificata sul DB reale (2026-07-24)**: `restart_assessments`
+  **31 colonne**; `confirmation_id` uuid/NOT NULL/no default + unique `restart_assessments_confirmation_id_key`;
+  unique index `training_strategies_one_per_assessment_uidx`; RPC `confirm_restart_strategy` presente
+  (**SECURITY INVOKER**, VOLATILE, `search_path=public,pg_temp`, firma/return corretti); ACL `authenticated`
+  execute=true, anon/PUBLIC=false; FK composite same-user ancora NO ACTION/DEFERRABLE/INITIALLY DEFERRED;
+  RLS attiva; policy F2.3 e trigger Strategy invariati; **row count 0/0** (nessuna conferma/write reale).
+  Aggiunge: **`restart_assessments.confirmation_id`** `uuid` NOT NULL UNIQUE
+  **senza default** (chiave di idempotenza; rollout robusto ADD COLUMN→backfill→SET NOT NULL→UNIQUE;
+  immutabilità invariata → **31 colonne**); UNIQUE index **`training_strategies_one_per_assessment_uidx`**
+  su `(based_on_assessment_id)` (un Assessment → una sola Strategy persistita); RPC
+  **`public.confirm_restart_strategy(p_confirmation_id, p_assessment jsonb, p_strategy jsonb,
+  p_expected_active_strategy_id)` RETURNS TABLE(assessment_id, strategy_id, created_new)** —
+  **SECURITY INVOKER**, VOLATILE, `search_path=public,pg_temp`, identità **solo** `auth.uid()`,
+  **advisory xact lock per-utente**, **idempotency lookup prima dello staleness check**, **expected-active
+  guard NULL-safe** (`restart_confirmation_stale`), **supersede old active prima** dell'INSERT new active
+  (partial unique `active` non DEFERRABLE), mapping esplicito whitelist (no `jsonb_populate_record`, no
+  dynamic SQL), rollback completo su errore. Privilegi: `REVOKE` da PUBLIC/anon, `GRANT EXECUTE` solo a
+  `authenticated`. **Nessuna** modifica applicativa/API/UI/AI; policy RLS/trigger/FK composite F2.3
+  invariati. tsc/build OK, `git diff --check` pulito, static audit SQL superato. Verification SQL read-only
+  + test transazionali commentati in coda alla migration. **F2.6 complessiva NON è DONE.**
+- [ ] **TODO — F2.6b · Signed confirmation token + confirm API (D007/D020/D021)**. Modificherà il successo
+  di F2.5 per **emettere un token firmato** (HMAC, nuova env **`RESTART_CONFIRMATION_SECRET`**, **breve
+  scadenza**) contenente `confirmation_id` + normalized answers + **Assessment fingerprint** + Strategy
+  Proposal firmata + **expected active Strategy**, associato all'utente **senza esporre `user_id`**. Al
+  confirm: **ricostruire l'Assessment server-side**, **confrontare il fingerprint**, **rivalidare** la
+  Strategy contro il Profilo corrente, chiamare **esclusivamente** la RPC F2.6a; **mai** fidarsi di
+  draft/proposta libera dal client. Transizione mesociclo/piano solo se confermata (D007). **NON iniziato.**
 - [ ] **TODO — F2.7 · Restart UI**. Assessment + domande minime adattive + proposta + rationale +
   conferma; aggiornamenti disponibilità/limitazioni proposti sul Profilo (source of truth).
 - [ ] **TODO — F2.8 · Decision Center (UI iniziale)**. Lettura strategia attiva + rationale +
@@ -236,8 +258,8 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.5 DONE; prossimo F2.6)
-- Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D019** + sezione
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.5 DONE; F2.6a DONE; prossimo F2.6b)
+- Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D021** + sezione
   "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 - Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training
   Strategy** (decisione, una sola active) / Workout Plan / Mesocycle. Baseline error-honest a

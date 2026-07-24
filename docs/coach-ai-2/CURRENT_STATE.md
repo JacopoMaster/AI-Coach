@@ -805,6 +805,89 @@ automaticamente (transizione in F2.6).
   transazione**; **partial unique index `active` non DEFERRABLE**; **FK composite same-user già
   DEFERRABLE INITIALLY DEFERRED**; **idempotency e gestione doppia conferma ancora da progettare in F2.6.**
 
+### Stato F2.6a (DONE — idempotency schema + atomic RPC, migration `015` applicata e verificata sul DB reale)
+> **Primo task del flusso Restart che prepara una write permanente.** Migration `015` che consente
+> di persistere **atomicamente** (una sola transazione PostgreSQL): (1) Restart Assessment immutabile;
+> (2) supersede dell'eventuale Training Strategy attiva; (3) nuova Training Strategy attiva — con
+> **idempotenza sulla doppia conferma**, **serializzazione per utente**, **controllo della Strategy
+> attiva attesa**. **Nessuna modifica applicativa/API in questo task.** F2.6 complessiva **NON è DONE**.
+> **Migration `015` applicata manualmente via Supabase SQL Editor e verificata sul DB reale il
+> 2026-07-24 → F2.6a DONE.** **Nessuna conferma/write reale ancora eseguita**; nuove tabelle ancora
+> **0/0**. Decisioni: **D020** (signed confirmation artifact — solo formalizzata, HMAC in F2.6b),
+> **D021** (atomic & idempotent persistence). **Prossimo task: F2.6b.**
+
+- **Verifica DB reale — SUPERATA (2026-07-24)**: `restart_assessments` **column count = 31**;
+  `confirmation_id` = `uuid`, **NOT NULL**, **nessun default**, unique constraint
+  `restart_assessments_confirmation_id_key` presente; unique index
+  `training_strategies_one_per_assessment_uidx` presente; RPC `public.confirm_restart_strategy` presente
+  con firma `(p_confirmation_id uuid, p_assessment jsonb, p_strategy jsonb, p_expected_active_strategy_id
+  uuid)` e return `TABLE(assessment_id uuid, strategy_id uuid, created_new boolean)`; **SECURITY INVOKER**
+  + **VOLATILE** + `search_path = public, pg_temp` verificati; **ACL**: `authenticated` execute = **true**,
+  `anon` = **false**, `PUBLIC` = **false**; FK composite same-user ancora **ON DELETE NO ACTION /
+  DEFERRABLE / INITIALLY DEFERRED**; **RLS attiva** su entrambe le tabelle; **policy F2.3 invariate**;
+  **trigger Strategy invariati** (`trg_training_strategies_enforce_update`,
+  `trg_training_strategies_updated_at`); **row count `restart_assessments` = 0, `training_strategies` = 0**.
+  **Idempotenza (`confirmation_id`), unique one-strategy-per-assessment, advisory lock per-utente e stale
+  guard presenti nella RPC** (verifica strutturale + static audit; la verifica funzionale end-to-end della
+  conferma è parte di F2.6b, con l'app che chiama la RPC).
+
+- **File**: `supabase/migrations/015_restart_confirmation_idempotency_and_rpc.sql` (stile F1.2/F2.3:
+  idempotente, applicazione manuale + verifica read-only in coda + test transazionali commentati).
+  **Nessun** DROP TABLE/TRUNCATE/DELETE di dati; **nessun** seed; nessuna modifica a policy RLS/trigger
+  esistenti né alle FK composite same-user di F2.3.
+- **`restart_assessments.confirmation_id`** (chiave di idempotenza): `uuid` **NOT NULL**, **UNIQUE**
+  (constraint named `restart_assessments_confirmation_id_key`, uniqueness **globale** — UUID
+  server-generated), **senza DEFAULT** (deve essere fornito esplicitamente dal flusso di conferma).
+  Rollout robusto: ADD COLUMN nullable → backfill `gen_random_uuid()` delle eventuali righe NULL (one-off,
+  non un default) → SET NOT NULL → ADD CONSTRAINT UNIQUE (guardato via `pg_constraint`). **Immutabilità
+  invariata** (nessuna UPDATE/DELETE policy, nessun `updated_at`, nessun trigger). → `restart_assessments`
+  passa a **31 colonne**.
+- **`training_strategies_one_per_assessment_uidx`**: UNIQUE index su `(based_on_assessment_id)` — un
+  Assessment confermato genera **una sola** Strategy persistita; un retry non può crearne una seconda;
+  una nuova strategia richiede un **nuovo Assessment** + `supersedes_id`. FK composite same-user
+  **invariata**.
+- **RPC `public.confirm_restart_strategy(p_confirmation_id uuid, p_assessment jsonb, p_strategy jsonb,
+  p_expected_active_strategy_id uuid)` RETURNS TABLE(`assessment_id uuid`, `strategy_id uuid`,
+  `created_new boolean`)**:
+  - **SECURITY INVOKER**, **VOLATILE**, `SET search_path = public, pg_temp`; identità **solo** da
+    `auth.uid()` (mai `user_id` come parametro o dal JSON); se `auth.uid()` è NULL → errore, nessuna
+    write. **Non** accetta `p_user_id`/`status`/`based_on_assessment_id`/`supersedes_id`/
+    `workout_plan_id`/`mesocycle_id` (determinati internamente).
+  - **Privilegi**: `REVOKE ALL` da `PUBLIC` e `anon`, `GRANT EXECUTE` **solo** a `authenticated` (firma
+    esatta). SELECT sulle tabelle invariati; nessun path service-role.
+  - **Ordine transazionale**: auth → **advisory transaction lock per-utente**
+    (`pg_advisory_xact_lock(hashtextextended('restart-confirm:'||uid,0))`, transaction-scoped) →
+    **idempotency lookup** (`user_id`+`confirmation_id`) → validazione JSON top-level (oggetto) →
+    lettura active corrente → **expected-active check NULL-safe** (`IS DISTINCT FROM` →
+    `restart_confirmation_stale`) → **INSERT Assessment** → **UPDATE old active → superseded** (verifica
+    ROW_COUNT=1) → **INSERT new active Strategy** → return. L'idempotency lookup **precede** lo staleness
+    check; il supersede **precede** l'INSERT della nuova active (partial unique `active` **non
+    DEFERRABLE**).
+  - **Idempotenza**: replay con lo stesso `confirmation_id` → stesse righe, `created_new=false`, nessun
+    duplicato/secondo supersede/cambio stato. Assessment esistente senza Strategy = **errore di
+    integrità interno**.
+  - **Mapping esplicito** delle colonne (whitelist), **no** `jsonb_populate_record`, **no** dynamic SQL,
+    **no** concatenazione SQL; chiavi extra nel JSON ignorate; array `jsonb → text[]` via
+    `jsonb_array_elements_text`; `id`/`user_id`/`status`/`created_at`/link server-decided, mai dal JSON.
+    Cast + CHECK + FK + unique + trigger proteggono la persistenza anche in caso di bug applicativo.
+    **Nessun exception handler** che converta errori in successo → rollback completo.
+- **Limite direct-write (documentato, non nascosto — §18/D021)**: la RPC è SECURITY INVOKER e rispetta
+  RLS; le policy attuali consentono comunque all'utente autenticato write dirette sulle **proprie** righe
+  tramite le normali API Supabase. Rischio **self-data**, mai cross-user. L'hardening "RPC-only writes"
+  richiede una **decisione separata** (probabilmente SECURITY DEFINER o policy contestuali) → **non**
+  introdotto ora, **non** convertire a SECURITY DEFINER senza approvazione.
+- **Verifica**: `npx tsc --noEmit` OK, `npm run build` OK (solo SQL/docs, nessuna modifica app),
+  `git diff --check` pulito. **Static audit SQL**: nessun `p_user_id`, idempotency **prima** dello stale
+  check, supersede **prima** dell'INSERT active, advisory transaction lock, SECURITY INVOKER, ACL
+  corretti, nessun dynamic SQL, nessun dato seed, F2.4/F2.5 applicativi non toccati. Verification SQL
+  read-only + test transazionali commentati (rollback) inclusi in coda alla migration. **Migration `015`
+  applicata manualmente e verificata sul DB reale il 2026-07-24 (vedi "Verifica DB reale" sopra) →
+  F2.6a DONE**; **row count 0/0** (nessuna conferma/write reale eseguita). **Prossimo task: F2.6b**
+  (signed confirmation token + confirm API).
+- **Limite direct-write (invariato, documentato)**: le write dirette dell'utente sulle **proprie** righe
+  restano teoricamente possibili sotto le RLS esistenti; **l'app userà soltanto la RPC** (F2.6b). Rischio
+  self-data, mai cross-user; hardening "RPC-only writes" = decisione separata, non introdotto ora.
+
 ---
 
 ## Principi di prodotto

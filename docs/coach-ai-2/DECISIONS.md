@@ -160,6 +160,52 @@
 - **D019** — **`user_stats.baseline_tonnage` resta della gamification.** Il campo legacy
   **non** viene riusato come Restart Baseline e **non** riceve nuova semantica. Restano separati.
 
+- **D020** — **Signed confirmation artifact per il Restart (Fase 2, F2.6).** La conferma della
+  Restart Strategy **non** avviene ripersistendo ciecamente draft/proposta inviati dal client. Al
+  momento in cui F2.5 produce `ready_for_confirmation`, il server emette (in **F2.6b**) un
+  **confirmation token firmato server-side**:
+  - firmato server-side (HMAC via env dedicata `RESTART_CONFIRMATION_SECRET`), **non modificabile
+    dal client**;
+  - a **breve scadenza**;
+  - **associato all'utente autenticato** (senza esporre `user_id` in chiaro nel payload);
+  - contiene: la **Strategy Proposal** confermata, le **risposte normalizzate**, il **fingerprint
+    dell'Assessment Draft**, l'**identità dell'eventuale Strategy attiva osservata** al momento della
+    proposta, e un **`confirmation_id` UUID univoco**.
+  Al confirm, il server **ricostruisce l'Assessment server-side**, confronta il fingerprint,
+  **rivalida** la Strategy contro il Profilo corrente e chiama **esclusivamente** la RPC di
+  persistenza. Il client **non** invia mai liberamente Assessment o Strategy da persistere.
+  *(F2.6a NON implementa il token: crea solo lo schema/RPC di persistenza. L'HMAC e la confirm API
+  sono F2.6b.)*
+
+- **D021** — **Persistenza Restart atomica e idempotente via singola RPC PostgreSQL.**
+  *(F2.6a — schema/RPC realizzati in migration `015`, **applicata manualmente su Supabase e verificata
+  sul DB reale il 2026-07-24**: RPC presente, SECURITY INVOKER, VOLATILE, `search_path=public,pg_temp`,
+  ACL `authenticated`-only, `confirmation_id` uuid NOT NULL UNIQUE senza default, unique
+  one-strategy-per-assessment attivo, FK composite same-user ancora differibili, RLS/policy/trigger F2.3
+  invariati, row count 0/0. La confirm API che usa la RPC è F2.6b.)* La
+  persistenza di Assessment immutabile + supersede della vecchia Strategy attiva + nuova Strategy
+  attiva avviene in **una sola transazione** tramite l'RPC `public.confirm_restart_strategy`
+  (**SECURITY INVOKER**, rispetta RLS; identità **solo** da `auth.uid()`, mai `user_id` come
+  parametro o dal JSON).
+  - Il **`confirmation_id`** (D020) è la **chiave di idempotenza**: prima chiamata → crea Assessment
+    e Strategy (`created_new=true`); **replay** della stessa conferma → restituisce le **stesse**
+    righe (`created_new=false`), **nessun duplicato**, **nessun secondo supersede**, nessun cambio di
+    stato. Protezione a due livelli: **advisory lock transazionale per-utente** + **UNIQUE
+    `confirmation_id`**.
+  - La RPC verifica che la Strategy **attiva corrente** corrisponda a quella **osservata al momento
+    della proposta** (`p_expected_active_strategy_id`, confronto NULL-safe): una proposta **obsoleta**
+    non deve sovrascrivere silenziosamente una Strategy più recente → errore `restart_confirmation_stale`.
+  - **Ordine obbligatorio**: idempotency lookup **prima** dello staleness check (un replay vede come
+    active la Strategy appena creata); **supersede della vecchia active prima** dell'INSERT della nuova
+    (il partial unique index `active` **non è DEFERRABLE**). Qualunque errore → **rollback completo**
+    (nessun exception handler che converta errori in successo).
+  - **Un Assessment → una sola Strategy** persistita (UNIQUE index su `based_on_assessment_id`); una
+    nuova strategia richiede un **nuovo Assessment** e `supersedes_id`.
+  - **Limite direct-write documentato**: SECURITY INVOKER + le policy RLS attuali consentono comunque
+    a un utente autenticato write dirette sulle **proprie** righe tramite le normali API Supabase; è un
+    rischio **self-data**, mai cross-user. Un hardening "RPC-only writes" richiederebbe una **decisione
+    separata** (probabilmente SECURITY DEFINER o policy contestuali) e **non** viene introdotto ora.
+
 ---
 
 ## Revisioni
