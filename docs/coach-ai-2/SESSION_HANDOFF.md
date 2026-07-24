@@ -42,14 +42,58 @@
 
 - **Data**: 2026-07-24
 - **Branch**: `main`
-- **Ultimo commit (locale)**: **F2.6a committato questa sessione** `feat(restart): add confirmation
-  idempotency schema and atomic RPC` sopra `2a777db` (F2.5), `fc9d965` (F2.4), `8101716` (F2.3),
-  `aa3597f` (F2.2). **F2.6a DONE — migration `015` applicata manualmente su Supabase e verificata sul DB
-  reale il 2026-07-24**. Storico: F2.1 docs `0e7e788`;
+- **Ultimo commit (locale)**: `e1dc42c` `feat(restart): add confirmation idempotency schema and atomic
+  RPC` (F2.6a) sopra `2a777db` (F2.5), `fc9d965` (F2.4), `8101716` (F2.3), `aa3597f` (F2.2). **F2.6a
+  DONE**. **F2.6b IMPLEMENTED / PENDING REAL CONFIRMATION & REPLAY VERIFICATION — NON committato**
+  (working tree, questa sessione): signed confirmation token + confirm API. Storico: F2.1 docs `0e7e788`;
   Fase 1: `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`,
   `50fca65`. `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato
   sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.6b — Signed confirmation token + confirm API** (**IMPLEMENTED / PENDING REAL CONFIRMATION &
+    REPLAY VERIFICATION** — **NON committato**; nessuna write reale ancora eseguita):
+    - **Nuovo dominio `lib/restart/confirmation/`** (11 file): `types.ts`, `errors.ts`, `canonical-json.ts`
+      (deterministico, rifiuta undefined/Date/NaN/Infinity/bigint/non-plain, no-mutazione), `fingerprint.ts`
+      (**SHA-256 hex** del canonical JSON dell'intero draft), `secret.ts` (`RESTART_CONFIRMATION_SECRET`
+      server-only ≥32 byte, no fallback/hardcoded/log), `token.ts` (**HMAC-SHA256**,
+      `<payload_b64url>.<sig_b64url>`, domain separation `restart-confirmation:v1:`, **`timingSafeEqual`**
+      con length-guard su firma e user binding, no JWT), `active-strategy.ts` (lettura active **error-honest**),
+      `answers.ts` (normalize dal draft ⇄ rebuild body F2.4), `schema.ts` (Zod strict confirm body **solo
+      `confirmation_token`** ≤16KB + payload V1, riusa schema proposta F2.5), `issue.ts` (wrapper emissione),
+      `confirm.ts` (orchestrazione, **unica write = RPC**);
+    - **Token V1** (D020): `purpose/version`, `issued_at/expires_at` (TTL **15 min**), `confirmation_id`
+      (uuid), **`user_binding`** = `HMAC(secret,"restart-confirmation:user:v1:"+userId)` (**utente senza
+      `user_id` in chiaro**), `normalized_answers` (4 chiavi), `assessment_fingerprint`, `strategy_proposal`
+      (F2.5), `expected_active_strategy_id`. **Non** contiene user_id/draft completo/snapshot/cookie/api key;
+    - **Route `strategy-proposal`**: contratto invariato; **solo** su `ready_for_confirmation` aggiunge
+      `confirmation_token` + `confirmation_expires_at` (draft/proposta restano). Wrapper
+      `issueRestartStrategyProposal`: non-success passano invariati (senza leggere active/firmare); ready →
+      legge active (§11 error-honest) → normalize → fingerprint → confirmation_id → firma. `runtime='nodejs'`
+      su **entrambe** le route;
+    - **Confirm API `POST /api/restart/confirm`**: body strict **solo `{confirmation_token}`**; 401 → 400
+      body/token → verifica firma/purpose/version/schema/scadenza/binding → **rebuild Assessment F2.4** →
+      richiede `ready_for_strategy_proposal` (else **409**) → **fingerprint match** (mismatch → 409) →
+      **rivalidazione Strategy vs Profilo corrente** (schema F2.5 + guardrail + `start_date===analysis_date`
+      + review 28/35/42; incompatibile → 409; invariante interna → 500) → **`.rpc('confirm_restart_strategy')`**
+      (unica write) → valida riga (uuid×2 + boolean, 1 riga) → `{status:'confirmed', assessment_id,
+      strategy_id, created_new}`. **Nessuna AI**, **nessuna** rigenerazione proposta;
+    - **Error mapping** (§21): 401 / 400 `invalid_confirmation_token` / 410 `confirmation_expired` / 409
+      `confirmation_stale` (incl. RPC `restart_confirmation_stale` ristretto, non tutti i P0001) / 500
+      `confirmation_failed`; bodies generici, **nessun log** di token/payload/fingerprint/binding/secret/
+      `user_id`;
+    - **Idempotenza/replay** (§30): prima conferma `created_new=true`; replay stesso token → `created_new=false`
+      stessi id; dopo scadenza → 410;
+    - **Env richiesta**: `RESTART_CONFIRMATION_SECRET` (no `NEXT_PUBLIC`, ≥32 byte). **Nessun `.env.example`**
+      nel repo (solo `.env.local`, gitignored) → **nessun file env creato/modificato**. Gen:
+      `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`;
+    - **Nessuna** migration/DB/RLS/RPC/UI change; ricerca write: unica `.rpc('confirm_restart_strategy')`,
+      nessun `.insert/.update/.upsert/.delete`, lettura read-only active consentita; confirm layer **AI-free**;
+    - tsc/build OK (route `/api/restart/confirm` + `/api/restart/strategy-proposal` registrate); **104
+      asserzioni pure** F2.6b + **55** F2.5 (regressione compatibile);
+    - **⚠️ Verifica reale (prima conferma = PRIMA WRITE REALE + replay + verifica DB) RINVIATA a
+      settembre** (inizio del Restart reale), su decisione esplicita: **non eseguita** in questa sessione
+      (checklist §36 sotto). Quindi **F2.6b NON DONE** e **F2.6 complessiva NON DONE**;
+      `restart_assessments`/`training_strategies` restano **0/0** (ultima verifica DB 2026-07-24).
   - **F2.6a — Idempotency schema + atomic confirmation RPC** (**DONE** — **committato questa sessione**;
     migration **applicata manualmente su Supabase e verificata sul DB reale il 2026-07-24**; primo task
     del flusso Restart che prepara una write permanente):
@@ -377,16 +421,19 @@
   F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (`8101716`, migration `014`
   applicata/verificata sul DB reale 2026-07-24), **F2.4 DONE** (`fc9d965`, verifica runtime API
   superata), **F2.5 DONE** (`2a777db`; verifica AI runtime reale + structured tool use + verifica
-  qualitativa + Profile guardrails + zero persistence SUPERATE il 2026-07-24), **F2.6a DONE** (committato
-  questa sessione; migration `015` applicata e verificata sul DB reale il 2026-07-24). Prossimo: **F2.6b**.
-- **Stato working tree (F2.6a)**: **committato questa sessione** — **file unico**
-  `supabase/migrations/015_restart_confirmation_idempotency_and_rpc.sql` + docs coach-ai-2 (`DECISIONS`,
-  `CURRENT_STATE`, `BACKLOG`, `SESSION_HANDOFF`). Fuori scope invariati/esclusi dal commit:
-  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. tsc/build OK, `git diff --check`
-  pulito, static audit SQL superato. **Nessuna** modifica applicativa/API/UI/AI; policy RLS/trigger/FK
-  composite F2.3 invariati; **migration applicata e verificata sul DB reale**, **row count 0/0** (nessuna
-  conferma/write reale). **Nessun push.** Commit: `feat(restart): add confirmation idempotency schema and
-  atomic RPC`.
+  qualitativa + Profile guardrails + zero persistence SUPERATE il 2026-07-24), **F2.6a DONE** (`e1dc42c`;
+  migration `015` applicata e verificata sul DB reale il 2026-07-24), **F2.6b IMPLEMENTED / PENDING REAL
+  CONFIRMATION & REPLAY VERIFICATION** (working tree, non committato). Prossimo: **F2.7** (dopo verifica
+  reale F2.6b).
+- **Stato working tree (F2.6b)**: **non committato** — 11 file `lib/restart/confirmation/` (`types`,
+  `errors`, `canonical-json`, `fingerprint`, `secret`, `token`, `active-strategy`, `answers`, `schema`,
+  `issue`, `confirm`) + **nuova route** `app/api/restart/confirm/route.ts` + **modifica** `app/api/restart/
+  strategy-proposal/route.ts` (emissione token + `runtime='nodejs'`) + docs coach-ai-2 (`CURRENT_STATE`,
+  `BACKLOG`, `SESSION_HANDOFF`). Fuori scope invariati/esclusi: `.claude/settings.local.json`,
+  `public/worker-bc2006058c3e6de4.js`. tsc/build OK, `git diff --check` pulito, **104 asserzioni pure**
+  F2.6b + **55** F2.5 (regressione), ricerche write/AI/secret/logging pulite. **Nessuna** migration/DB/RLS/
+  RPC/UI change; **nessuna write reale eseguita**; tabelle ancora **0/0**. **Nessun push, nessun commit.**
+  Commit suggerito (dopo verifica reale): `feat(restart): add signed confirmation token and confirm API`.
 - **F2.5 — verifica AI runtime reale (§21) ESEGUITA E SUPERATA (2026-07-24)**:
   `POST /api/restart/strategy-proposal` con sessione autenticata reale → HTTP **200**,
   `status: ready_for_confirmation`; `assessment_draft` presente; `strategy_proposal` presente con
@@ -405,21 +452,30 @@
   (`provolatile='v'`), `search_path=public,pg_temp`, params/return corretti, **nessun `user_id`** nei
   parametri; ACL: `authenticated` execute=true, PUBLIC/anon=false; FK composite F2.3 ancora differibili;
   RLS attiva; policy/trigger invariati; **row count 0/0** (nessuna conferma/write reale eseguita).
-- **Prossimo task**: **F2.6b — Signed confirmation token + confirm API (D007/D020/D021)**. **NON iniziato.**
-  Dovrà: **modificare il successo di F2.5** per emettere un **token firmato** (HMAC, nuova env
-  **`RESTART_CONFIRMATION_SECRET`**, **breve scadenza**) contenente `confirmation_id` + **normalized
-  answers** + **Assessment fingerprint** + **Strategy Proposal firmata** + **expected active Strategy**,
-  associato all'utente **senza esporre `user_id`**; al confirm **ricostruire l'Assessment server-side**,
-  **confrontare il fingerprint**, **rivalidare** la Strategy contro il Profilo corrente, chiamare
-  **esclusivamente** la RPC F2.6a; **mai** fidarsi di draft/proposta libera dal client.
-- **File da leggere per F2.6b**:
-  - `supabase/migrations/015...sql` (firma RPC + semantica idempotency/stale), `lib/restart/strategy-proposal/*`
-    (types/proposal/server/orchestrate: forma proposta + stato `ready_for_confirmation`), `lib/restart/
-    assessment/*` (draft/types/server + `RestartAssessmentDraft` per il fingerprint), `lib/ai/models.ts`,
-    `DECISIONS.md` (D006/D007/D020/D021).
-- **Nota**: **F2.6a DONE** (committato questa sessione; migration `015` applicata e verificata sul DB
-  reale 2026-07-24; nessuna conferma/write reale, tabelle 0/0). **F2.5 DONE** (`2a777db`). **F2.4 DONE**
-  (`fc9d965`). **F2.6 complessiva NON DONE** (manca F2.6b).
+- **Gate runtime prima di F2.6b DONE — Checklist verifica reale (§36, RINVIATA A SETTEMBRE su decisione
+  esplicita; NON eseguita in questa sessione; la prima conferma è una WRITE REALE — eseguire SOLO a
+  settembre all'inizio del Restart reale, su richiesta esplicita)**:
+  1. impostare in locale `RESTART_CONFIRMATION_SECRET` (≥32 byte, es.
+     `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`);
+  2. riavviare `npm run dev`;
+  3. `POST /api/restart/strategy-proposal` (stesso body F2.4) → `ready_for_confirmation` con
+     `confirmation_token` + `confirmation_expires_at`; verificare scadenza ~15 min;
+  4. `POST /api/restart/confirm` con `{confirmation_token}` → 200 `created_new=true`;
+  5. **ripetere** lo stesso confirm → 200 `created_new=false` con **stessi** `assessment_id`/`strategy_id`;
+  6. verifica DB: `restart_assessments`=**1**, `training_strategies`=**1**, Strategy `status='active'`,
+     Assessment `confirmation_id` valorizzato, `based_on_assessment_id` corretto; **nessun duplicato**;
+  7. (opzionale) token scaduto → 410; token di altro utente → 400; draft/Profilo cambiati → 409.
+- **Prossimo task**: **F2.7 — Restart UI**. Assessment + domande minime adattive + proposta + rationale +
+  conferma (invio del solo `confirmation_token`); aggiornamenti disponibilità/limitazioni proposti sul
+  Profilo (source of truth). **NON iniziato.** ⚠️ **F2.7 non deve considerare F2.6 definitivamente
+  verificata**: la UI potrà mostrare proposta e conferma, ma il **test reale del pulsante finale (write
+  reale) resta rinviato a settembre**. F2.6b resta IMPLEMENTED / PENDING REAL VERIFICATION.
+- **File da leggere per F2.7**:
+  - `app/api/restart/strategy-proposal/route.ts` + `app/api/restart/confirm/route.ts` (contratti API),
+    `lib/restart/confirmation/types.ts` (payload/response), `lib/restart/assessment/types.ts` (stati/domande),
+    `lib/restart/strategy-proposal/types.ts` (forma proposta), `components/profile/*` (pattern UI esistenti).
+- **Nota**: **F2.6b IMPLEMENTED / PENDING REAL CONFIRMATION & REPLAY VERIFICATION** (non committato;
+  nessuna write reale). **F2.6a DONE** (`e1dc42c`). **F2.5 DONE** (`2a777db`). **F2.6 complessiva NON DONE.**
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:

@@ -20,9 +20,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse, type NextRequest } from 'next/server'
 import { RestartAssessmentRequestSchema } from '@/lib/restart/assessment/schema'
-import { generateRestartStrategyProposal } from '@/lib/restart/strategy-proposal/server'
+import { issueRestartStrategyProposal } from '@/lib/restart/confirmation/issue'
 import { InvalidAiOutputError, StrategyProviderError } from '@/lib/restart/strategy-proposal/errors'
 
+// The confirmation token (F2.6b) is signed with Node crypto → Node.js runtime.
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
@@ -44,7 +46,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await generateRestartStrategyProposal(supabase, user.id, parsed.data.answers)
+    // F2.6b wrapper: F2.5 proposal + (on success only) a signed confirmation token.
+    const result = await issueRestartStrategyProposal(supabase, user.id, parsed.data.answers)
 
     // An answer to a question the server did not ask is a hard client error.
     if (result.status === 'unexpected_answer') {
@@ -55,6 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // profile_required / needs_answers / profile_update_required / ready_for_confirmation
+    // (ready_for_confirmation now also carries confirmation_token + confirmation_expires_at)
     return NextResponse.json(result)
   } catch (err) {
     // AI provider failure OR invalid AI output after the single retry → 502 generic.

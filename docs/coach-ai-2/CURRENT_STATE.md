@@ -888,6 +888,97 @@ automaticamente (transizione in F2.6).
   restano teoricamente possibili sotto le RLS esistenti; **l'app userà soltanto la RPC** (F2.6b). Rischio
   self-data, mai cross-user; hardening "RPC-only writes" = decisione separata, non introdotto ora.
 
+### Stato F2.6b (IMPLEMENTED / PENDING REAL CONFIRMATION & REPLAY VERIFICATION — signed confirmation token + confirm API)
+> Chiude il flusso Restart (D007/D018): F2.5 genera draft+proposta → il server emette un **token di
+> conferma HMAC firmato e a breve scadenza** (D020) → l'utente conferma inviando **solo il token** →
+> il server ri-autentica, verifica token/scadenza/binding, **ricostruisce l'Assessment F2.4
+> server-side**, confronta il **fingerprint**, **rivalida** la Strategy contro il Profilo corrente e
+> chiama **esclusivamente** la RPC F2.6a (D021), che persiste atomicamente e idempotentemente.
+> **Nessuna migration, nessuna modifica DB/RLS/RPC, nessuna UI, nessuna AI nella conferma, nessuna
+> write reale ancora eseguita.** tsc/build OK, **104 asserzioni pure** F2.6b + **55** F2.5 (regressione).
+> **La verifica runtime con write reale è RINVIATA a settembre** (quando inizierà il Restart reale):
+> non è stata eseguita in questa sessione. Quindi **F2.6b NON è DONE** e **F2.6 complessiva NON è DONE**.
+> Attualmente `restart_assessments` e `training_strategies` restano **0/0** (ultima verifica DB reale
+> 2026-07-24). Prossimo task di sviluppo: **F2.7** (Restart UI) — ma **F2.7 non deve considerare F2.6
+> definitivamente verificata**: la UI mostrerà proposta e conferma, però il test reale del pulsante
+> finale (write reale) resta rinviato a settembre. Nessuna nuova decisione (coperta da D020/D021).
+> **Il primo confirm reale futuro dovrà verificare**: `created_new=true` alla prima conferma; replay
+> dello stesso token → `created_new=false` con **stessi** `assessment_id`/`strategy_id`; **un solo**
+> Assessment; **una sola** Strategy `active`; `confirmation_id` valorizzato; `based_on_assessment_id`
+> corretto; nessun duplicato.
+
+- **Nuovo dominio `lib/restart/confirmation/`** (11 file, responsabilità separate — no monolite):
+  `types.ts` (payload V1 + costanti TTL/skew/limiti + tipi risultato/param RPC), `errors.ts`
+  (`ConfirmationConfigError`→500, `InvalidConfirmationTokenError`→400, `ConfirmationExpiredError`→410,
+  `ConfirmationStaleError`→409, `ConfirmationFailedError`→500), `canonical-json.ts`
+  (`canonicalJsonStringify` deterministico: chiavi ordinate ricorsivamente, ordine array preservato,
+  **rifiuta** undefined/bigint/function/symbol/Date/non-plain/NaN/Infinity, non muta l'input),
+  `fingerprint.ts` (`fingerprintRestartAssessmentDraft` = **SHA-256 hex** del canonical JSON dell'intero
+  draft), `secret.ts` (`getRestartConfirmationSecret` server-only: env obbligatoria, **≥32 byte reali**
+  `Buffer.byteLength`, nessun fallback/hardcoded, mai loggata), `token.ts` (HMAC-SHA256, formato compatto
+  `<payload_b64url>.<sig_b64url>`, **domain separation** `restart-confirmation:v1:`, **timingSafeEqual**
+  con length-guard su firma **e** user binding, no JWT), `active-strategy.ts` (lettura **error-honest**
+  della Strategy active corrente: no row→null, errore DB→throw), `answers.ts` (normalize dal draft ⇄
+  rebuild del body F2.4), `schema.ts` (Zod strict del confirm body **solo** `confirmation_token` bounded
+  16KB + Zod strict del payload V1, riusa `RestartTrainingStrategyProposalSchema` F2.5), `issue.ts`
+  (wrapper di emissione), `confirm.ts` (orchestrazione conferma).
+- **Token HMAC V1** (D020): payload client-**leggibile** ma **non modificabile** (firma HMAC-SHA256 su
+  `restart-confirmation:v1:<payload_b64url>`). Campi: `purpose`/`version:1`, `issued_at`/`expires_at`
+  (epoch sec), `confirmation_id` (uuid, `crypto.randomUUID`), **`user_binding`**, `normalized_answers`
+  (4 chiavi esplicite), `assessment_fingerprint`, `strategy_proposal` (F2.5), `expected_active_strategy_id`
+  (uuid|null). **Non** contiene: `user_id` in chiaro, draft completo, profile/baseline snapshot, cookie,
+  auth token, api key.
+- **User binding senza `user_id`** (§6): `HMAC(secret, "restart-confirmation:user:v1:"+userId)` base64url;
+  alla verifica ricalcolato dalla sessione e confrontato **timing-safe**; il raw `user_id` non compare
+  in token/response/log.
+- **TTL** `RESTART_CONFIRMATION_TTL_SECONDS = 15*60` (centralizzato, mai dal client); `expires_at =
+  issued_at + TTL`; verifica: `expires_at > issued_at`, scaduto → `confirmation_expired`, `issued_at`
+  troppo nel futuro (> +30s skew) → invalid. La response F2.5 include `confirmation_expires_at` (ISO).
+- **Strategy-proposal route** (F2.5) invariata nel contratto: body strict identico, stati incompleti
+  identici; **solo** su `ready_for_confirmation` aggiunge `confirmation_token` + `confirmation_expires_at`
+  (draft/proposta **restano** nella response per display). Wrapper `issueRestartStrategyProposal` (§13):
+  chiama F2.5, propaga invariati i non-success (senza leggere active né firmare), per ready legge active
+  (§11, error-honest) → normalizza → fingerprint → `confirmation_id` → firma. `runtime='nodejs'` su
+  entrambe le route (Node crypto, no Edge).
+- **Confirm API** `POST /api/restart/confirm` (§14/§15): body strict **solo** `{confirmation_token}`
+  (≤16KB); 401 → 400 body/token → verifica firma/purpose/version/schema/scadenza/binding → **rebuild
+  Assessment** via `postRestartAssessment` → richiede `ready_for_strategy_proposal` (altrimenti **409**)
+  → **fingerprint match** (mismatch → 409) → **rivalidazione Strategy** (schema F2.5 + guardrail Profilo
+  corrente + `start_date===analysis_date` + review coerente 28/35/42; incompatibile → 409; invariante
+  interna → 500) → **`supabase.rpc('confirm_restart_strategy', …)`** (unica write) → valida la riga RPC
+  (uuid×2 + boolean, esattamente 1 riga) → `{status:'confirmed', assessment_id, strategy_id, created_new}`.
+  **Nessuna** chiamata Anthropic; **nessuna** rigenerazione della proposta.
+- **RPC-only write**: nei file F2.6b l'unica write è `.rpc('confirm_restart_strategy', …)`; la lettura
+  read-only della active Strategy è consentita. Nessun `.insert/.update/.upsert/.delete`, nessun'altra RPC.
+- **Error mapping** (§21): 401 non auth; 400 `invalid_confirmation_token` (body/token/firma/purpose/
+  version/schema/binding); 410 `confirmation_expired`; 409 `confirmation_stale` (assessment/Profilo/
+  baseline cambiati, Strategy incompatibile, **RPC `restart_confirmation_stale`** riconosciuto in modo
+  ristretto — non tutti i P0001); 500 `confirmation_failed` (config/secret, DB/RPC non-stale, riga RPC
+  malformata, invariante). **Nessun** dettaglio Supabase/SQLSTATE/stack/payload/fingerprint/binding/
+  secret/`user_id` esposto o loggato (solo stage generico).
+- **Env richiesta**: **`RESTART_CONFIRMATION_SECRET`** (server-only, ≥32 byte, nessun `NEXT_PUBLIC`).
+  **Non** esiste `.env.example` nel repo (solo `.env.local`, gitignored) → nessun file env creato/modificato.
+  Generazione sicura: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
+  Da impostare in locale/Vercel prima della verifica runtime.
+- **Idempotenza/replay** (§30): prima conferma → RPC `created_new=true`, API `confirmed`; replay stesso
+  token (entro scadenza) → RPC `created_new=false`, stessi `assessment_id`/`strategy_id`; dopo la scadenza
+  → **410** anche se già persistita (nessun bypass client-side). La RPC F2.6a resta l'autorità su
+  advisory lock/idempotency/active-check/supersede/insert; la route traduce solo `restart_confirmation_stale`
+  → 409, **nessun** direct UPDATE.
+- **Test (104 asserzioni pure)**: canonical JSON/fingerprint (ordine chiavi/array, null, undefined/Date/
+  NaN/Infinity/bigint rifiutati, no-mutazione, cambi profile/baseline/answer/scalar → fingerprint diverso),
+  token security (valido, payload/firma manomessi, segmento mancante/extra, base64url/JSON invalido,
+  purpose/version errati, expired, issued nel futuro, utente diverso, secret errato/mancante/corto, oltre
+  max size, length-guard firma, binding round-trip), trust boundary (confirm body rifiuta draft/proposal/
+  answers/user_id/confirmation_id/expected_active/analysis_date/status/extra), emissione (solo ready firma;
+  incompleti non leggono active né firmano; active null/uuid; expires=issued+TTL; no raw user_id; no draft
+  completo; proposta/answers/fingerprint presenti; errori active/secret propagati), confirm orchestration
+  (success created_new true/false stessi id; fingerprint mismatch→stale zero-RPC; profile_required/
+  needs_answers/profile_update_required/unexpected→stale zero-RPC; Strategy incompatibile→stale; proposta
+  invalida nel token→invalid; RPC stale→409, RPC generic→500, vuota/multipla/malformata→500; params
+  forwarding confirmation_id/expected active; **nessun user_id nei params RPC**; p_assessment=draft
+  ricostruito; config error→500). **Verifica reale (prima conferma + replay + verifica DB) da eseguire.**
+
 ---
 
 ## Principi di prodotto

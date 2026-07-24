@@ -14,7 +14,9 @@
 > guardrails, un solo repair retry, **zero persistenza**; **verifica AI runtime reale + qualitativa
 > superata 2026-07-24**). **F2.6 divisa in F2.6a (migration/RPC) + F2.6b (token + confirm API)**:
 > **F2.6a DONE** (migration `015`: `confirmation_id` + RPC atomica idempotente; **applicata e verificata
-> sul DB reale 2026-07-24**). Prossimo task: **F2.6b** (signed confirmation token + confirm API).
+> sul DB reale 2026-07-24**). **F2.6b IMPLEMENTED / PENDING REAL CONFIRMATION & REPLAY VERIFICATION**
+> (token HMAC firmato + confirm API `POST /api/restart/confirm` + emissione token in strategy-proposal).
+> F2.6 complessiva **NON DONE**. Prossimo task: **F2.7** (Restart UI).
 > Riferimenti: D006/D007, D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
@@ -135,15 +137,37 @@
   `authenticated`. **Nessuna** modifica applicativa/API/UI/AI; policy RLS/trigger/FK composite F2.3
   invariati. tsc/build OK, `git diff --check` pulito, static audit SQL superato. Verification SQL read-only
   + test transazionali commentati in coda alla migration. **F2.6 complessiva NON è DONE.**
-- [ ] **TODO — F2.6b · Signed confirmation token + confirm API (D007/D020/D021)**. Modificherà il successo
-  di F2.5 per **emettere un token firmato** (HMAC, nuova env **`RESTART_CONFIRMATION_SECRET`**, **breve
-  scadenza**) contenente `confirmation_id` + normalized answers + **Assessment fingerprint** + Strategy
-  Proposal firmata + **expected active Strategy**, associato all'utente **senza esporre `user_id`**. Al
-  confirm: **ricostruire l'Assessment server-side**, **confrontare il fingerprint**, **rivalidare** la
-  Strategy contro il Profilo corrente, chiamare **esclusivamente** la RPC F2.6a; **mai** fidarsi di
-  draft/proposta libera dal client. Transizione mesociclo/piano solo se confermata (D007). **NON iniziato.**
+- [~] **IMPLEMENTED / PENDING REAL CONFIRMATION & REPLAY VERIFICATION — F2.6b · Signed confirmation token +
+  confirm API (D007/D020/D021)**. Dominio `lib/restart/confirmation/` (11 file: types, errors, canonical-json,
+  fingerprint, secret, token, active-strategy, answers, schema, issue, confirm) + route
+  `POST /api/restart/confirm` + emissione token nella route `strategy-proposal` (wrapper
+  `issueRestartStrategyProposal`). **Token HMAC-SHA256 V1** (`<payload_b64url>.<sig_b64url>`, domain
+  separation, `timingSafeEqual`, no JWT) firmato con **`RESTART_CONFIRMATION_SECRET`** (server-only, ≥32
+  byte, no fallback/hardcoded/log), **TTL 15 min**, `user_binding` HMAC (utente **senza `user_id` in
+  chiaro**), `normalized_answers`, **canonical-JSON SHA-256 `assessment_fingerprint`**, `strategy_proposal`
+  firmata, `expected_active_strategy_id`, `confirmation_id` uuid. Su `ready_for_confirmation` la route F2.5
+  aggiunge `confirmation_token` + `confirmation_expires_at` (draft/proposta restano). Confirm: body strict
+  **solo `{confirmation_token}`** (≤16KB); ri-auth → verifica firma/scadenza/binding → **rebuild Assessment
+  F2.4 server-side** → **fingerprint match** → **rivalidazione Strategy vs Profilo corrente** → **unica
+  write = `.rpc('confirm_restart_strategy')`** → valida riga → `{status:'confirmed', assessment_id,
+  strategy_id, created_new}`. **Nessuna AI nella conferma**; **nessun** `.insert/.update/.upsert/.delete`;
+  error mapping 401 / 400 `invalid_confirmation_token` / 410 `confirmation_expired` / 409 `confirmation_stale`
+  (incl. RPC `restart_confirmation_stale` ristretto) / 500 `confirmation_failed`, bodies generici, **nessun
+  log** di token/payload/fingerprint/binding/secret/`user_id`. `runtime='nodejs'` su entrambe le route.
+  **Idempotenza/replay**: prima conferma `created_new=true`; replay stesso token → `created_new=false`
+  stessi id; dopo scadenza → 410. **Nessuna migration/DB/RLS/RPC/UI change**; **nessuna write reale ancora
+  eseguita**. tsc/build OK; **104 asserzioni pure** F2.6b + **55** F2.5 (regressione). **La verifica
+  runtime con write reale è RINVIATA a settembre** (inizio del Restart reale): non eseguita ora →
+  **F2.6b NON DONE** e **F2.6 complessiva NON DONE**; `restart_assessments`/`training_strategies` restano
+  **0/0** (ultima verifica DB 2026-07-24). Il primo confirm reale futuro dovrà verificare: `created_new=true`;
+  replay stesso token → `created_new=false` con stessi `assessment_id`/`strategy_id`; **un solo** Assessment;
+  **una sola** Strategy `active`; `confirmation_id` valorizzato; `based_on_assessment_id` corretto; nessun
+  duplicato.
 - [ ] **TODO — F2.7 · Restart UI**. Assessment + domande minime adattive + proposta + rationale +
-  conferma; aggiornamenti disponibilità/limitazioni proposti sul Profilo (source of truth).
+  conferma (invio del solo `confirmation_token`); aggiornamenti disponibilità/limitazioni proposti sul
+  Profilo (source of truth). **F2.7 non deve considerare F2.6 definitivamente verificata**: la UI potrà
+  mostrare proposta e conferma, ma il **test reale del pulsante finale (write reale) resta rinviato a
+  settembre**.
 - [ ] **TODO — F2.8 · Decision Center (UI iniziale)**. Lettura strategia attiva + rationale +
   review date (sola lettura).
 
@@ -258,7 +282,7 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.5 DONE; F2.6a DONE; prossimo F2.6b)
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.5 DONE; F2.6a DONE; F2.6b IMPLEMENTED/PENDING REAL VERIFICATION; prossimo F2.7)
 - Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D021** + sezione
   "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 - Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training
