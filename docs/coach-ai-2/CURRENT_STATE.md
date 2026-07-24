@@ -700,6 +700,111 @@ automaticamente (transizione in F2.6).
   `profile_update_required` (blocker `update_schedule_availability`, nessun draft). Nessuna route dev
   temporanea usata: verificata la vera API F2.4.
 
+### Stato F2.5 (DONE — AI Strategy Proposal, verifica AI runtime reale superata)
+> Trasforma il `RestartAssessmentDraft` validato di F2.4 in una **proposta di Training Strategy**
+> strutturata, spiegabile, coerente con la data quality, **validata applicativamente** e **effimera**:
+> **NESSUNA persistenza** (no `restart_assessments`/`training_strategies`/`athlete_profiles`/
+> `workout_plans`/`mesocycles`; nessun insert/update/upsert/delete/rpc). Nessuna UI, nessuna migration,
+> DB/RLS non toccati; Workout Plan/Mesocycle non toccati; le nuove tabelle restano **vuote (0/0)**.
+> **La proposta finale corrisponde al nucleo di `training_strategies` SENZA identity/status/FK/timestamp**
+> — quelli li decide F2.6. tsc/build OK, **55 asserzioni pure superate**. **Verifica AI runtime reale
+> (chiamata Anthropic con sessione autenticata reale) + structured tool use + verifica qualitativa +
+> Profile guardrails + zero persistence — SUPERATE il 2026-07-24 → DONE** (committato questa sessione).
+> F2.4 (`lib/restart/assessment/*`) e F2.2 (`lib/restart/*.ts`) **non toccati**.
+
+- **Verifica AI runtime reale — SUPERATA (2026-07-24)**: `POST /api/restart/strategy-proposal` con
+  sessione autenticata reale → HTTP **200**, `status = ready_for_confirmation`; `assessment_draft`
+  presente; `strategy_proposal` presente; `strategy_type = 'restart'`; `start_date ===
+  assessment_draft.analysis_date`; `review_date` successiva e coerente con uno dei periodi ammessi
+  (start + 28/35/42); target/minimum **entro i limiti dell'Athlete Profile**, `minimum ≤ target`;
+  **nessun** campo identity/persistence nella proposta; **nessun `user_id`** nei payload. **Structured
+  tool use verificato** (Anthropic tool use forzato su `propose_restart_strategy`). **Verifica
+  qualitativa — SUPERATA**: proposta ancorata ai dati reali; performance/body trattati con cautela
+  quando `limited`; nutrition missing = dato assente (non 0 kcal né scarsa aderenza); target ideale e
+  minimo sostenibile distinti; rientro graduale e non punitivo; sessione ridotta preferita a sessione
+  saltata; `rationale`/`observations` spiegabili; `risks_uncertainties` coerenti con la data quality;
+  **nessuna invenzione, nessuna diagnosi, nessuna prescrizione** (esercizi/serie/reps/carichi/calorie/
+  macro/integratori). **Zero persistenza confermata dopo la chiamata reale: `restart_assessments` = 0,
+  `training_strategies` = 0.**
+
+- **Nuovo dominio `lib/restart/strategy-proposal/`** (9 file, responsabilità separate — no monoliti):
+  - `types.ts` — `RestartStrategyAiOutput` (ciò che l'AI produce: numeri + prosa + `review_after_days`
+    28|35|42, **mai date né `strategy_type`**); `RestartTrainingStrategyProposal` (proposta finale =
+    nucleo `training_strategies` **senza** `id`/`user_id`/`created_at`/`updated_at`/`status`/
+    `based_on_assessment_id`/`supersedes_id`/`workout_plan_id`/`mesocycle_id`); `RestartStrategyContext`
+    (contesto bounded al modello); `StrategyProvider` (interfaccia iniettabile); stati API
+    (`ReadyForConfirmationState` + propagazione degli stati incompleti F2.4).
+  - `schema.ts` — `RestartStrategyAiOutputSchema` Zod **strict/bounded**: target/min interi 1..7 con
+    `minimum ≤ target`; `review_after_days` enum 28|35|42; `primary_objective` ≤180, `summary` ≤800,
+    `rationale` ≤2000 (trim, non vuoti); `priorities` 2..6, `observations` 1..12, `risks_uncertainties`
+    1..10 (entro i limiti migration 014: priorities ≤10, observations/risks ≤20 — più stretti); nessuna
+    chiave extra. `RestartTrainingStrategyProposalSchema` (proposta assemblata: `strategy_type` literal,
+    date ISO, `review_date > start_date`, invarianti). `safeIssueHint` = riassunto **value-free** degli
+    issue Zod (solo `path: code`) per il repair — mai valori del modello o dell'assessment, mai loggato.
+  - `context.ts` — `buildRestartStrategyContext(draft)` **puro**: proiezione bounded/serializzabile del
+    draft già costruito server-side (analysis_date, snapshot versions, `profile_snapshot`,
+    `baseline_snapshot`, 4 risposte manuali). **NO** `user_id`/cookie/token/auth metadata; non
+    ri-appiattisce gli scalari (già dentro `baseline_snapshot`, §11); `null`/`[]` preservati.
+  - `prompt.ts` — `RESTART_STRATEGY_SYSTEM_PROMPT` (§9 grounding + §10 anti prompt-injection),
+    `proposeStrategyTool` (JSON Schema Anthropic, **mirror** dello Zod, con test di parità), e
+    `buildStrategyUserContent` (ASSESSMENT **delimitato** `<ASSESSMENT>…</ASSESSMENT>` come dato non
+    fidato; note utente **mai** concatenate come istruzioni).
+  - `provider.ts` — `AnthropicStrategyProvider` (client iniettabile): **una** call structured con
+    **tool_choice forzato** su `propose_restart_strategy`; **nessun parsing markdown/regex/JSON-da-testo**.
+    Model ID dalla **config centrale** `AI_MODELS.restartStrategy` (mai hardcoded). Errori
+    transport/SDK → **throw** `StrategyProviderError`; tool assente/errato/ambiguo → `{ok:false, reason}`
+    (retryable). Nulla loggato (né prompt né output).
+  - `proposal.ts` — pipeline (§14): tool call → Zod parse → **Profile guardrails** → assemblaggio
+    (server: `strategy_type='restart'`, `start_date=analysis_date`, `review_date=addDays(start,
+    review_after_days)` date-only) → **validazione finale**. **Un solo repair retry** (max 2 chiamate,
+    hint value-free) su output AI invalido; provider error → nessun retry; due tentativi falliti →
+    `InvalidAiOutputError`. `readProfileBounds` lancia `ProposalInvariantError` **prima** di ogni call
+    se la disponibilità profilo manca su un draft restart-ready.
+  - `orchestrate.ts` — `resolveStrategyProposalFromPostState(post, provider)` **DB-free**: propaga
+    invariati `profile_required`/`needs_answers`/`profile_update_required`/`unexpected_answer` e chiama
+    il provider **solo** su `ready_for_strategy_proposal` → `ready_for_confirmation` (con
+    `assessment_draft` echeggiato invariato).
+  - `server.ts` — `generateRestartStrategyProposal(supabase, userId, answers, provider?)`: riusa
+    `postRestartAssessment` (F2.4) e delega a `orchestrate`. Provider **iniettabile** (default reale)
+    → orchestrazione testabile senza AI/DB. **Zero write.**
+  - `errors.ts` — `StrategyProviderError` (`strategy_provider_error`), `InvalidAiOutputError`
+    (`invalid_ai_output`) → **502 generico**; `ProposalInvariantError` (`proposal_invariant_error`)
+    → 500. Nessun dettaglio esposto.
+- **Guardrail Profile** (dopo Zod): `target ≤ profile.target`, `minimum ≤ profile.minimum`,
+  `minimum ≤ target`; **valori inferiori ammessi** (rientro graduale), **superiori vietati**; profilo
+  core assente = errore interno (il Profilo doveva essere restart-ready).
+- **Date** (`lib/date/app-date.addDays`): aritmetica date-only ancorata a UTC-midnight, DST-safe, no
+  shift timezone; test cambio mese/anno/febbraio/leap + round-trip `diffCalendarDays`.
+- **Route** `POST /api/restart/strategy-proposal` — solo POST; auth (401); body = **stesso schema
+  strict F2.4** (`{answers}`, il client non può inviare draft/proposta/baseline/snapshot/analysis_date/
+  target|min/plan|meso id/user_id); `unexpected_answer` → 400; stati incompleti → 200; successo → 200
+  `ready_for_confirmation` (`assessment_draft` + `strategy_proposal` + `questions` + `answers`); AI
+  fallita/output invalido → **502** `{error:'strategy_generation_failed'}`; altro → 500. Log solo
+  `err.code` generico; **mai** prompt/assessment/risposta AI/risposte manuali.
+- **Config modelli**: `lib/ai/models.ts` estesa con chiave semantica **`restartStrategy`** (default =
+  modello testo qualitativo, definito una sola volta come `QUALITY_TEXT_DEFAULT`, **nessun ID
+  duplicato**; override env `ANTHROPIC_RESTART_STRATEGY_MODEL`). Nessun altro modello modificato.
+- **Requisito F2.6 (registrato)**: la conferma **non** dovrà persistere ciecamente draft/proposta dal
+  client — **nuova validazione server-side** obbligatoria, poi transazione atomica (RPC `SECURITY
+  INVOKER`: UPDATE old→superseded prima di INSERT new active; partial unique non deferrable). F2.5 **non**
+  implementa token firmati/RPC/idempotency.
+- **Test (55 asserzioni pure)**: schema AI (valido/extra/min>target/enum/array/stringhe), Profile
+  guardrails (sopra/sotto profilo, core mancante→internal), context/privacy (no user_id, no metadata,
+  null/[] preservati, bounded/serializzabile), date (start=analysis_date, +28/+35/+42 cross mese/anno/
+  febbraio, no TZ shift), provider parsing (tool corretto/assente/errato/ambiguo/payload invalido, model
+  ID da config, tool_choice forzato), retry (1° invalido→2° valido, due invalidi→`invalid_ai_output`,
+  max 2 chiamate, provider error tipizzato), orchestrazione (zero AI-call su stati incompleti, una call
+  su ready, `ready_for_confirmation`, draft invariato, no identity/FK, error→codici 502), grounding/
+  prompt (data quality, snapshot untrusted, no diagnosi/invenzioni, no prescrizioni, target vs minimo,
+  nutrition missing = unknown), trust boundary (body rifiuta draft/proposal/user_id/analysis_date, JSON
+  serializzabile) + parità tool↔Zod. **Verifica AI runtime reale ESEGUITA E SUPERATA (§21, 2026-07-24).**
+- **Requisiti F2.6 (registrati)**: la conferma **non** dovrà fidarsi di `assessment_draft`/
+  `strategy_proposal` inviati dal client → **ricostruzione e nuova validazione server-side**;
+  **transazione atomica** tramite **RPC PostgreSQL `SECURITY INVOKER`**; eventuale old active Strategy →
+  `superseded` **prima** dell'INSERT della nuova `active`; **INSERT Assessment e Strategy nella stessa
+  transazione**; **partial unique index `active` non DEFERRABLE**; **FK composite same-user già
+  DEFERRABLE INITIALLY DEFERRED**; **idempotency e gestione doppia conferma ancora da progettare in F2.6.**
+
 ---
 
 ## Principi di prodotto

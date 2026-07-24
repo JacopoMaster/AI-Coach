@@ -10,8 +10,10 @@
 > **Fase 0 COMPLETATA.** **Fase 1 COMPLETATA** (F1.1–F1.5). **Fase 2 in corso**: F2.1 design DONE,
 > **F2.2 DONE** (aggregation layer `lib/restart/`), **F2.3 DONE** (migration `014` applicata/verificata
 > sul DB reale 2026-07-24), **F2.4 DONE** (application/API layer `lib/restart/assessment/` + route;
-> verifica runtime API superata 2026-07-24). Prossimo task: **F2.5** (AI Strategy Proposal).
-> Riferimenti: D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
+> verifica runtime API superata 2026-07-24), **F2.5 DONE** (structured tool proposal + Zod + Profile
+> guardrails, un solo repair retry, **zero persistenza**; **verifica AI runtime reale + qualitativa
+> superata 2026-07-24**). Prossimo task: **F2.6** (Confirm and persist Assessment + Strategy atomically).
+> Riferimenti: D006/D007, D008/D009, **D014–D019**, sezione "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 
 ### Roadmap Fase 2 (approvata)
 - [x] **DONE — F2.1 · Design & Architecture Restart / Training Strategy** (docs). Entità e confini
@@ -79,10 +81,45 @@
   **76 asserzioni pure**. **Verifica manuale API+draft con sessione reale ancora da eseguire** (§22:
   GET→needs_answers, POST both-false→ready + row count 0/0, POST boolean true→profile_update_required).
   **Requisito atomicità (F2.3)**: F2.6 userà RPC/transazione `SECURITY INVOKER`.
-- [ ] **TODO — F2.5 · AI Strategy Proposal (strutturata)**. Schema Zod + provider + **validazione
-  applicativa**. Solo proposta, nessuna write.
-- [ ] **TODO — F2.6 · Strategy confirmation & persistence (D007)**. Conferma utente → persiste
-  Strategy (active) + link Assessment; transizione mesociclo/piano solo se confermata.
+- [x] **DONE — F2.5 · AI Strategy Proposal (strutturata)**.
+  Dominio `lib/restart/strategy-proposal/` (9 file: types, schema, context, prompt, provider, proposal,
+  orchestrate, server, errors) + route `POST /api/restart/strategy-proposal`. Trasforma il
+  `RestartAssessmentDraft` validato di F2.4 in una **proposta di Training Strategy** strutturata,
+  spiegabile, **effimera (NESSUNA write)**. Il body è lo **stesso schema strict F2.4** (`{answers}`):
+  Profile/Baseline/Draft ricostruiti server-side; stati incompleti F2.4 propagati
+  (`profile_required`/`needs_answers`/`profile_update_required`), AI invocata **solo** su
+  `ready_for_strategy_proposal`; successo → `ready_for_confirmation`. **Structured tool output**
+  (Anthropic tool use forzato, un solo tool `propose_restart_strategy`; nessun parsing markdown/regex).
+  L'AI produce **solo** `RestartStrategyAiOutput` (numeri + prosa + `review_after_days` 28|35|42), mai
+  date né `strategy_type`; il **server** deriva `strategy_type='restart'`, `start_date=analysis_date`,
+  `review_date=start_date+review_after_days` (date-only, no TZ shift). **Zod strict/bounded** (entro i
+  limiti migration 014: priorities ≤10, observations/risks ≤20 — più stretti) + **Profile guardrails**
+  (target/min ≤ disponibilità profilo; min ≤ target; valori inferiori ammessi per rientro graduale) +
+  validazione finale della proposta (schema + invarianti). **Un solo repair retry** (max 2 chiamate,
+  hint value-free; provider/transport error → nessun retry). Errori tipizzati: `StrategyProviderError`
+  / `InvalidAiOutputError` → **502 generico** (`strategy_generation_failed`); `ProposalInvariantError`
+  → 500. Modello dalla config centrale (`AI_MODELS.restartStrategy`, default = modello testo, override
+  `ANTHROPIC_RESTART_STRATEGY_MODEL`) — nessun ID hardcoded. Prompt: italiano, solo structured output,
+  data quality per dominio, snapshot **untrusted** (anti prompt-injection, ASSESSMENT delimitato),
+  no invenzioni/diagnosi, no prescrizioni (esercizi/serie/reps/carichi/calorie/macro), target vs minimo,
+  nutrition missing = unknown. **NESSUNA persistenza** (no `.from/.insert/.update/.upsert/.delete/.rpc`).
+  tsc/build OK; **55 asserzioni pure** (schema, guardrails, context/privacy, date, provider parsing,
+  retry, orchestrazione zero-AI-call, prompt grounding, trust boundary, parità tool↔Zod). **Verifica AI
+  runtime reale ESEGUITA E SUPERATA (2026-07-24)**: `POST /api/restart/strategy-proposal` → 200
+  `ready_for_confirmation`, `strategy_type='restart'`, `start_date===analysis_date`, `review_date`
+  coerente (start+28/35/42), target/min **entro il profilo**, nessun identity/`user_id`; structured tool
+  use verificato; verifica qualitativa superata (grounding, cautela su domini `limited`, nutrition
+  missing = assente, nessuna prescrizione/diagnosi/invenzione); **nuove tabelle 0/0**. **→ DONE.**
+  **F2.6 dovrà ri-validare server-side, mai persistere ciecamente draft/proposta dal client.**
+- [ ] **TODO — F2.6 · Confirm and persist Assessment + Strategy atomically (D007/D018)**. Conferma
+  utente → persiste Assessment immutabile + Strategy (active) + link; transizione mesociclo/piano solo
+  se confermata. **Requisiti già stabiliti**: non fidarsi di `assessment_draft`/`strategy_proposal` dal
+  client → **ricostruzione e nuova validazione server-side**; **transazione atomica** via **RPC
+  PostgreSQL `SECURITY INVOKER`**; eventuale old active Strategy → `superseded` **prima** dell'INSERT
+  della nuova `active`; **INSERT Assessment e Strategy nella stessa transazione**; **partial unique
+  index `active` non DEFERRABLE**; **FK composite same-user già DEFERRABLE INITIALLY DEFERRED**; validare
+  ownership `workout_plan_id`/`mesocycle_id`; **idempotency e gestione doppia conferma ancora da
+  progettare in F2.6.**
 - [ ] **TODO — F2.7 · Restart UI**. Assessment + domande minime adattive + proposta + rationale +
   conferma; aggiornamenti disponibilità/limitazioni proposti sul Profilo (source of truth).
 - [ ] **TODO — F2.8 · Decision Center (UI iniziale)**. Lettura strategia attiva + rationale +
@@ -199,7 +236,7 @@
   **F1.5 DONE** (esposizione read-only al Coach, verificata manualmente). Modello/confini:
   `CURRENT_STATE.md` + **D012**.
 
-### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.4 DONE; prossimo F2.5)
+### Fase 2 — September Restart 🔶 IN CORSO (F2.1–F2.5 DONE; prossimo F2.6)
 - Roadmap **F2.1→F2.8** in cima ("Roadmap Fase 2"). Design/decisioni: **D014–D019** + sezione
   "Fase 2 — Restart (design)" in `CURRENT_STATE.md`.
 - Entità distinte (D014): Profile / **Restart Assessment** (fatti, immutabile) / **Training

@@ -42,12 +42,58 @@
 
 - **Data**: 2026-07-24
 - **Branch**: `main`
-- **Ultimo commit (locale)**: `feat(restart): add restart assessment application and API layer`
-  (F2.4, questa sessione) sopra `8101716` (F2.3) e `aa3597f` (F2.2). Storico: F2.1 docs `0e7e788`;
+- **Ultimo commit (locale)**: **F2.5 committato questa sessione** `feat(restart): add AI strategy proposal
+  layer and API` sopra `fc9d965` (F2.4), `8101716` (F2.3), `aa3597f` (F2.2). **F2.5 DONE — verifica AI
+  runtime reale (chiamata Anthropic con sessione autenticata reale) SUPERATA il 2026-07-24**. Storico: F2.1 docs `0e7e788`;
   Fase 1: `59a9669`, `68fa809`, `ea460d2`, `e25db80`, `569f5fc`; Fase 0: `84d69ff`, `bafac1e`,
   `50fca65`. `main` ahead di `origin/main` — **nessun push**. Refactor AIErrorClass/logging isolato
   sul branch `feat/ai-error-logging` (`8d8cd67`).
 - **Cosa è stato completato**:
+  - **F2.5 — AI Strategy Proposal (strutturata)** (**DONE** — allineata alla spec §1–§26;
+    **committata questa sessione**; **verifica AI runtime reale con sessione autenticata reale
+    SUPERATA il 2026-07-24**):
+    - **Verifica runtime AI reale — SUPERATA**: `POST /api/restart/strategy-proposal` → HTTP **200**,
+      `status = ready_for_confirmation`; `assessment_draft` presente; `strategy_proposal` presente con
+      `strategy_type = 'restart'`; `start_date === assessment_draft.analysis_date`; `review_date`
+      successiva e coerente con uno dei periodi ammessi (start + 28/35/42); target/minimum **entro i
+      limiti dell'Athlete Profile**, `minimum ≤ target`; **nessun** campo identity/persistence nella
+      proposta; **nessun `user_id`** nei payload. **Structured tool use verificato** (Anthropic tool use
+      forzato). **Verifica qualitativa SUPERATA**: proposta ancorata ai dati reali; performance/body
+      trattati con cautela quando `limited`; nutrition missing trattata come dato assente (non 0 kcal né
+      scarsa aderenza); target ideale e minimo sostenibile distinti; rientro graduale e non punitivo;
+      sessione ridotta preferita a sessione saltata; `rationale`/`observations` spiegabili;
+      `risks_uncertainties` coerenti con la data quality; nessuna invenzione, nessuna diagnosi, nessuna
+      prescrizione di esercizi/serie/reps/carichi/calorie/macro/integratori. **Zero persistenza
+      confermata dopo la chiamata reale: `restart_assessments` = 0 righe, `training_strategies` = 0 righe.**
+      **Nessuna UI, nessuna migration, Workout Plan/Mesocycle non toccati; le nuove tabelle restano vuote.**
+    - dominio `lib/restart/strategy-proposal/` (**9 file**): `types.ts` (`RestartStrategyAiOutput` =
+      solo ciò che l'AI produce, numeri+prosa+`review_after_days` 28|35|42, **mai date né
+      `strategy_type`**; `RestartTrainingStrategyProposal` = nucleo `training_strategies` **senza**
+      id/user_id/created_at/updated_at/status/based_on_assessment_id/supersedes_id/workout_plan_id/
+      mesocycle_id; `RestartStrategyContext`; `StrategyProvider` iniettabile; stati API), `schema.ts`
+      (Zod **strict/bounded** AI output + proposta finale + `safeIssueHint` value-free), `context.ts`
+      (`buildRestartStrategyContext` puro, bounded, no user_id/metadata, null/[] preservati), `prompt.ts`
+      (system prompt §9 + anti-injection §10, `proposeStrategyTool` mirror Zod, ASSESSMENT delimitato),
+      `provider.ts` (`AnthropicStrategyProvider` client iniettabile, **tool_choice forzato**, no parsing
+      markdown/regex, model da `AI_MODELS.restartStrategy`), `proposal.ts` (pipeline: tool→Zod→guardrail
+      →assemblaggio server date→validazione finale; **un solo repair retry**, max 2 call), `orchestrate.ts`
+      (`resolveStrategyProposalFromPostState` DB-free, propaga stati incompleti, AI **solo** su
+      `ready_for_strategy_proposal`), `server.ts` (`generateRestartStrategyProposal` riusa F2.4,
+      provider iniettabile), `errors.ts` (`StrategyProviderError`/`InvalidAiOutputError`→502,
+      `ProposalInvariantError`→500);
+    - route `app/api/restart/strategy-proposal/route.ts` (**POST only**, auth 401, **stesso body strict
+      F2.4** `{answers}`, `unexpected_answer`→400, stati incompleti→200, successo→200
+      `ready_for_confirmation`, AI fallita/invalida→**502** generico, altro→500; log solo `err.code`);
+    - `lib/ai/models.ts` estesa: chiave **`restartStrategy`** (default = `QUALITY_TEXT_DEFAULT`, nessun
+      ID duplicato; override `ANTHROPIC_RESTART_STRATEGY_MODEL`);
+    - **Server** deriva `strategy_type='restart'`, `start_date=analysis_date`, `review_date=start+
+      review_after_days` (date-only, no TZ shift); **Profile guardrails** (target/min ≤ profilo, min ≤
+      target, inferiori ammessi); **NESSUNA** persistenza (verificato: no `.from/.insert/.update/.upsert/
+      .delete/.rpc`), no UI, no migration; F2.4/F2.2 non toccati;
+    - tsc/build OK (`/api/restart/strategy-proposal` registrata), **55 asserzioni pure** superate;
+      `git diff --check` pulito; ricerche finali (model ID hardcoded / markdown-JSON / write DB / body
+      fields / logging sensibile) tutte pulite;
+    - **✅ Verifica AI runtime reale SUPERATA (2026-07-24)** → **F2.5 DONE**. Prossimo task: **F2.6**.
   - **F2.4 — Restart Assessment application/API layer** (**DONE** — allineato alla **spec completa
     §1–§24**; **verifica runtime API superata 2026-07-24**; committato questa sessione):
     - **Verifica runtime API — SUPERATA**: GET → 200 `needs_answers` (profilo restart-ready, baseline
@@ -283,24 +329,45 @@
   D007, D012/D013, D002.
 - **Stato fase**: **Fase 0 COMPLETATA**; **Fase 1 COMPLETATA** (`59a9669`); **Fase 2 in corso** —
   F2.1 design DONE (`0e7e788`), **F2.2 DONE** (`aa3597f`), **F2.3 DONE** (`8101716`, migration `014`
-  applicata/verificata sul DB reale 2026-07-24), **F2.4 DONE** (application/API layer, verifica runtime
-  API superata 2026-07-24, committato questa sessione).
-- **Prossimo task**: **F2.5 — AI Strategy Proposal (strutturata)**: schema Zod + provider +
-  validazione applicativa; **solo proposta, nessuna write**. L'AI riceve Profile + Baseline +
-  DataQuality + PlanFit + risposte (dal `RestartAssessmentDraft`/`ready_for_strategy_proposal` di
-  F2.4) e produce una **proposta strutturata (non una write)** → codice valida schema/coerenza/
-  guardrail (D018 passi 6–9). **NON iniziato.** **Requisito atomicità (F2.6, confermato F2.3)**:
-  INSERT Assessment + (UPDATE old active → superseded)
-  + INSERT nuova Strategy active **non** è atomico col client Supabase → **RPC/transazione
-  `SECURITY INVOKER`** (UPDATE old→superseded prima di INSERT new active; partial unique non
-  DEFERRABLE; le FK same-user sono DEFERRABLE INITIALLY DEFERRED).
-- **File da leggere per F2.5**:
-  - `lib/restart/assessment/*` (types/draft/questions/resolve/server), `lib/restart/types.ts`,
-    `DECISIONS.md` (D006/D007/D014/D018), `supabase/migrations/014...sql` (colonne
-    `training_strategies`: explainability, target/minimum, status, review_date), `lib/ai/provider.ts`
-    + `lib/ai/models.ts` (provider/modelli), `lib/ai/system-prompt.ts` (stile).
-- **Nota**: **F2.4 DONE** (verifica runtime API superata 2026-07-24, committato questa sessione).
-  Prossimo: **F2.5** (non iniziato).
+  applicata/verificata sul DB reale 2026-07-24), **F2.4 DONE** (`fc9d965`, verifica runtime API
+  superata), **F2.5 DONE** (committato questa sessione; verifica AI runtime reale + structured tool use
+  + verifica qualitativa + Profile guardrails + zero persistence SUPERATE il 2026-07-24). Prossimo: **F2.6**.
+- **Stato working tree (F2.5)**: **committato questa sessione** — 9 file `lib/restart/strategy-proposal/`
+  (`types`, `schema`, `context`, `prompt`, `provider`, `proposal`, `orchestrate`, `server`, `errors`) +
+  `app/api/restart/strategy-proposal/route.ts` + `lib/ai/models.ts` (chiave `restartStrategy`) + docs
+  coach-ai-2 (`CURRENT_STATE`, `BACKLOG`, `SESSION_HANDOFF`). Fuori scope invariati/esclusi dal commit:
+  `.claude/settings.local.json`, `public/worker-bc2006058c3e6de4.js`. tsc/build OK, **55 asserzioni
+  pure**, `git diff --check` pulito, ricerche finali pulite. **Nessuna** persistenza/UI/migration;
+  Workout Plan/Mesocycle non toccati; nuove tabelle a **0/0**. **Nessun push.** Commit:
+  `feat(restart): add AI strategy proposal layer and API`.
+- **F2.5 — verifica AI runtime reale (§21) ESEGUITA E SUPERATA (2026-07-24)**:
+  `POST /api/restart/strategy-proposal` con sessione autenticata reale → HTTP **200**,
+  `status: ready_for_confirmation`; `assessment_draft` presente; `strategy_proposal` presente con
+  `strategy_type:'restart'`; `start_date === assessment_draft.analysis_date`; `review_date` successiva
+  (start + 28/35/42); target/min coerenti ed **entro il profilo**, `minimum ≤ target`; nessun campo
+  identity/persistence; nessun `user_id`. **Verifica qualitativa SUPERATA**: `rationale`/`observations`
+  esplicite e ancorate ai dati; `risks_uncertainties` coerenti con la data quality (performance/body
+  `limited`, nutrition missing = dato assente, non 0 kcal); target ideale vs minimo sostenibile;
+  rientro graduale non punitivo; sessione ridotta > sessione saltata; **nessuna prescrizione concreta**
+  (esercizi/serie/reps/carichi/calorie/macro/integratori), nessuna diagnosi, nessuna invenzione;
+  **nuove tabelle ancora 0/0** (`restart_assessments`/`training_strategies`).
+- **Prossimo task**: **F2.6 — Confirm and persist Assessment + Strategy atomically (D007/D018)**.
+  **NON iniziato.** Requisiti già stabiliti:
+  - **non fidarsi** di `assessment_draft` o `strategy_proposal` inviati dal client;
+  - **ricostruzione e nuova validazione server-side** (mai persistere ciecamente draft/proposta dal client);
+  - **transazione atomica** tramite **RPC PostgreSQL `SECURITY INVOKER`** (rispetta RLS);
+  - eventuale **old active Strategy → `superseded` prima** dell'INSERT della nuova `active`;
+  - **INSERT Assessment e Strategy nella stessa transazione**;
+  - **partial unique index `active` non DEFERRABLE** (quindi UPDATE old→superseded prima di INSERT new active);
+  - **FK composite same-user già DEFERRABLE INITIALLY DEFERRED**;
+  - validare ownership `workout_plan_id`/`mesocycle_id` (same-user non FK-enforced);
+  - **idempotency e gestione doppia conferma ancora da progettare in F2.6.**
+- **File da leggere per F2.6**:
+  - `lib/restart/strategy-proposal/*` (types/proposal/server per la forma della proposta), `lib/restart/
+    assessment/*` (draft/types/server), `supabase/migrations/014...sql` (colonne + trigger
+    immutabilità + partial unique + FK differite), `DECISIONS.md` (D007/D014/D018).
+- **Nota**: **F2.5 DONE** (committato questa sessione; verifica AI runtime reale + qualitativa SUPERATE
+  2026-07-24). **F2.4 DONE** (committato `fc9d965`).
 - **Blocker**: nessuno. Residui noti fuori scope: Edge Functions Deno (`diet_logs` +
   date UTC) e `vacation.ts` — da affrontare in task dedicati.
 - **Comandi utili**:
